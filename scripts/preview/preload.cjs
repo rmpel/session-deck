@@ -51,6 +51,14 @@ contextBridge.exposeInMainWorld('deck', {
   sessions: async () => sessions,
   ptySize: async () => ({ cols: 120, rows: 32 }),
   hostname: async () => 'ENTERPRISE-D',
+  // The first session has opened a report and a ticket from it, side by side.
+  browserState: async () => (sessions[0] ? { [sessions[0].uid]: { active: 1, split: [1, 2], tabs: [
+    { id: 1, url: 'file:///Users/example/jira-triage.html', title: 'Jira triage', loading: false },
+    { id: 2, url: 'https://example.atlassian.net/browse/EXC-207', title: 'EXC-207 Vacancy filter', loading: false }
+  ] } } : {}),
+  onBrowser: () => () => {},
+  browserLayout: () => {},
+  browserUi: () => {},
   launch: async () => null,
   resume: async () => null,
   buffer: async () => '\x1b[2m> add a department filter to the vacancy block\x1b[0m\r\n\r\n● Edit render.php\r\n',

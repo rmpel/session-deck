@@ -90,6 +90,8 @@ export default function LcarsLayout({
   update,
   launchError,
   onDismissError,
+  browser,
+  obscured,
   fontSize,
   theme,
   handlers
@@ -194,6 +196,8 @@ export default function LcarsLayout({
                   key={focused.uid}
                   session={focused}
                   embedded
+                  browser={browser}
+                  obscured={obscured}
                   fontSize={fontSize}
                   theme={theme}
                   {...handlers(focused)}

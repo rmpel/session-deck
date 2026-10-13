@@ -231,17 +231,25 @@
 :root[data-skin='lcars'] body { background-image: none; }
 [data-skin='lcars'] .app { background: var(--app); }
 .lcars {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  /* Room above for the window's traffic lights, which is also where it drags. */
+  /* Room above for the window's traffic lights. */
   padding: 34px 0 14px 14px;
-  -webkit-app-region: drag;
   font-family: var(--f-body);
   overflow: hidden;
 }
-.lcars :is(button, .lc-screen, .lc-readout, .alertbar) { -webkit-app-region: no-drag; }
+/* Only that empty strip moves the window. A drag region wins over anything
+   drawn above it that does not opt out, so a larger one swallowed clicks. */
+.lcars::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 30px;
+  -webkit-app-region: drag;
+}
 .lc-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* Left column: stacked blocks, labels at their bottom right, like the panels
@@ -479,3 +487,31 @@
 [data-skin='lcars'] :is(.newbtn, .closeb):hover { filter: brightness(1.12); }
 [data-skin='lcars'] :is(.newbtn, .closeb):focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 [data-skin='lcars'] :is(.filter, .density, .wincount) { border-radius: 999px; }
+
+/* ---- a session's browser pane, set into the console ----
+   Between terminal and pane, a column of blocks like the left column, capped
+   round at both ends; it exists only while the pane does. Tabs are capsules. */
+[data-skin='lcars'] .bdivider { width: 22px; margin: 0 10px; display: flex; flex-direction: column; gap: 5px; }
+[data-skin='lcars'] .bdivider span { display: block; }
+[data-skin='lcars'] .bdivider span:nth-child(1) { flex: 0 0 48px; background: var(--tone-1); border-radius: 11px 11px 0 0; }
+[data-skin='lcars'] .bdivider span:nth-child(2) { flex: 1; background: var(--tone-2); }
+[data-skin='lcars'] .bdivider span:nth-child(3) { flex: 0 0 70px; background: var(--tone-3); }
+[data-skin='lcars'] .bdivider span:nth-child(4) { flex: 0 0 36px; background: var(--tone-peach); border-radius: 0 0 11px 11px; }
+[data-skin='lcars'] .bpane { background: transparent; }
+[data-skin='lcars'] .btab { border: 0; border-radius: 999px; background: color-mix(in srgb, var(--tone-2) 30%, transparent); }
+[data-skin='lcars'] .btab--shown { background: var(--tone-2); }
+[data-skin='lcars'] .btab--shown :is(.btabsel, .btabx) { color: var(--app); }
+[data-skin='lcars'] .btabsel { text-transform: uppercase; letter-spacing: .04em; font-weight: 600; color: var(--ink); padding-left: 12px; }
+[data-skin='lcars'] .bctl button {
+  border: 0;
+  border-radius: 999px;
+  background: var(--tone-3);
+  color: var(--app);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding: 3px 12px;
+}
+[data-skin='lcars'] .bctl button:hover { filter: brightness(1.12); color: var(--app); }
+[data-skin='lcars'] .bctl button[aria-pressed='true'] { background: var(--tone-1); color: var(--app); }
+[data-skin='lcars'] .bslot { border-radius: 0 10px 10px 0; }

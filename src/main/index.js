@@ -11,6 +11,7 @@ import { IS_MAC, IS_WIN } from './platform.js'
 import { listBackgrounds, chooseBackground, registerScheme, serveBackgrounds, urlFor } from './backgrounds.js'
 import { reposForSession, fileDiff } from './git.js'
 import { updater } from './updater.js'
+import { browsers } from './browser.js'
 
 // Must run before `ready`, or the menu bar and About panel say "Electron".
 app.setName('Session Deck')
@@ -107,11 +108,13 @@ function createWindow() {
   })
 
   win.once('ready-to-show', () => win.show())
+  browsers.attach(win)
 
   // Without this, `win` stays a live reference to a destroyed object and every
   // later send throws "Object has been destroyed".
   win.on('closed', () => {
     win = null
+    browsers.detach()
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -165,7 +168,14 @@ app.whenReady().then(() => {
   registry.on('change', (sessions) => {
     notifyBlocked(sessions)
     send('deck:sessions', sessions)
+    // A pane lives exactly as long as its session's tile.
+    browsers.prune(sessions.map((s) => s.uid))
   })
+
+  browsers.on('change', (state) => send('deck:browser', state))
+  ipcMain.handle('deck:browser-state', () => browsers.serialize())
+  ipcMain.on('deck:browser-layout', (_e, { uid, slots }) => browsers.layout(uid, slots))
+  ipcMain.on('deck:browser-ui', (_e, { uid, action, tab }) => browsers.ui(uid, action, tab))
 
   registry.on('data', (sessionId, chunk) => {
     send('deck:data', { sessionId, chunk })

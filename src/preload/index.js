@@ -38,6 +38,9 @@ contextBridge.exposeInMainWorld('deck', {
     ipcRenderer.send('deck:forget-test-page', { projectKey, pageId }),
   forgetPullRequest: (projectKey, prId) => ipcRenderer.send('deck:forget-pull-request', { projectKey, prId }),
   openExternal: (url) => ipcRenderer.send('deck:open-external', url),
+  browserState: () => ipcRenderer.invoke('deck:browser-state'),
+  browserLayout: (uid, slots) => ipcRenderer.send('deck:browser-layout', { uid, slots }),
+  browserUi: (uid, action, tab) => ipcRenderer.send('deck:browser-ui', { uid, action, tab }),
   updateState: () => ipcRenderer.invoke('deck:update-state'),
   checkForUpdate: () => ipcRenderer.invoke('deck:update-check'),
   downloadUpdate: () => ipcRenderer.invoke('deck:update-download'),
@@ -62,6 +65,11 @@ contextBridge.exposeInMainWorld('deck', {
     const h = () => cb()
     ipcRenderer.on('deck:update-open', h)
     return () => ipcRenderer.removeListener('deck:update-open', h)
+  },
+  onBrowser: (cb) => {
+    const h = (_e, state) => cb(state)
+    ipcRenderer.on('deck:browser', h)
+    return () => ipcRenderer.removeListener('deck:browser', h)
   },
   onData: (cb) => {
     const h = (_e, payload) => cb(payload)

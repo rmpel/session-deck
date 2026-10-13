@@ -14,7 +14,8 @@ import { createInterface } from 'readline'
 import { request } from 'http'
 import { readFileSync } from 'fs'
 import { homedir } from 'os'
-import { join } from 'path'
+import { join, resolve } from 'path'
+import { pathToFileURL } from 'url'
 
 const SESSION_ID = process.env.SESSION_DECK_ID || null
 const PORT = Number(process.env.SESSION_DECK_PORT || 47823)
@@ -40,8 +41,83 @@ const INSTRUCTIONS = `Session Deck is a dashboard the user watches to see what e
 - set_session_name: once, early in a task, with a short summary of the work (about 60 characters, lead with the ticket ID if there is one). Call again only if the task clearly changes.
 - report_test_page: right after you create or update a page the user should open to check your work — for example a WordPress test page made with WP-CLI.
 - report_pull_request: whenever you create a pull request, or hand the user a link to create one.
-- add_user_todo: for each manual step the user must take after you finish that you cannot do yourself — e.g. clear a cache on staging, check something in a browser, merge or deploy, move a ticket. One short actionable item per call. Never add things you did or will do yourself.`
+- add_user_todo: for each manual step the user must take after you finish that you cannot do yourself — e.g. clear a cache on staging, check something in a browser, merge or deploy, move a ticket. One short actionable item per call. Never add things you did or will do yourself.
+
+Session Deck also gives this session its own browser pane, shown beside its terminal. Use the browser_* tools instead of the \`open\` command or Claude in Chrome whenever the user should see a page (a generated HTML report, a ticket, a test page) or you need to read or act on a web page: the pane is where the user is already looking, and it is this session's alone. Local files open too (pass a path). The pane keeps the user's logins, so authenticated pages (Jira, Atlassian) work once the user has signed in there; if a page asks for a login, ask the user to sign in in the pane, then continue.`
 const FALLBACK_PROTOCOL = '2025-06-18'
+
+const TAB = { type: 'number', description: 'Tab number from browser_tabs. Default: the active tab.' }
+
+const BROWSER_TOOLS = [
+  {
+    name: 'browser_open',
+    description:
+      "Open a URL or local file in this session's browser pane in Session Deck, beside its terminal. " +
+      'Navigates the active tab, or opens a new tab with new_tab. Waits for the page to load.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'http(s) URL, file:// URL, or a local file path.' },
+        new_tab: { type: 'boolean', description: 'Open in a new tab instead of the active one.' },
+        tab: TAB
+      },
+      required: ['url']
+    }
+  },
+  {
+    name: 'browser_tabs',
+    description: "List the tabs in this session's browser pane.",
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'browser_select',
+    description: 'Make a tab the active one in the pane.',
+    inputSchema: { type: 'object', properties: { tab: TAB }, required: ['tab'] }
+  },
+  {
+    name: 'browser_split',
+    description: 'Show two tabs side by side in the pane, e.g. a list and the item opened from it. Omit `with` to end the split.',
+    inputSchema: {
+      type: 'object',
+      properties: { tab: TAB, with: { type: 'number', description: 'The tab to show next to it.' } },
+      required: ['tab']
+    }
+  },
+  {
+    name: 'browser_close',
+    description: 'Close a tab in the pane.',
+    inputSchema: { type: 'object', properties: { tab: TAB }, required: ['tab'] }
+  },
+  {
+    name: 'browser_snapshot',
+    description: "Read a tab: its URL, title, visible text, links and form fields.",
+    inputSchema: { type: 'object', properties: { tab: TAB } }
+  },
+  {
+    name: 'browser_screenshot',
+    description: 'Screenshot a tab as it appears in the pane. Only works while the session is on screen in the deck.',
+    inputSchema: { type: 'object', properties: { tab: TAB } }
+  },
+  {
+    name: 'browser_click',
+    description: 'Click the first element matching a CSS selector.',
+    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, tab: TAB }, required: ['selector'] }
+  },
+  {
+    name: 'browser_type',
+    description: 'Set the value of an input or textarea matching a CSS selector; optionally submit its form.',
+    inputSchema: {
+      type: 'object',
+      properties: { selector: { type: 'string' }, text: { type: 'string' }, submit: { type: 'boolean' }, tab: TAB },
+      required: ['selector', 'text']
+    }
+  },
+  {
+    name: 'browser_eval',
+    description: 'Run a JavaScript expression in a tab and return its (JSON) value. Promises are awaited, so fetch() with the logged-in cookies works.',
+    inputSchema: { type: 'object', properties: { expression: { type: 'string' }, tab: TAB }, required: ['expression'] }
+  }
+]
 
 const TOOLS = [
   {
@@ -132,6 +208,69 @@ function post(path, body) {
   })
 }
 
+/** A browser action, answered with the deck's JSON (or its error). */
+function browser(action, args) {
+  return new Promise((resolve) => {
+    const data = JSON.stringify({ sessionId: SESSION_ID, claudePid: CLAUDE_PID, action, args })
+    const req = request(
+      {
+        host: '127.0.0.1',
+        port: PORT,
+        path: '/mcp/browser',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(data),
+          'X-Deck-Token': TOKEN
+        },
+        // Page loads wait up to 15s in the deck.
+        timeout: 30000
+      },
+      (res) => {
+        let body = ''
+        res.setEncoding('utf8')
+        res.on('data', (c) => (body += c))
+        res.on('end', () => {
+          let json = null
+          try {
+            json = JSON.parse(body)
+          } catch {}
+          resolve({ status: res.statusCode, json })
+        })
+      }
+    )
+    req.on('error', () => resolve({ status: 0, json: null }))
+    req.on('timeout', () => {
+      req.destroy()
+      resolve({ status: 0, json: null })
+    })
+    req.end(data)
+  })
+}
+
+/** Paths become file:// URLs, resolved from where Claude runs. */
+const toUrl = (value) => {
+  const v = String(value ?? '').trim()
+  return /^[a-z][a-z0-9+.-]*:/i.test(v) ? v : pathToFileURL(resolve(v)).href
+}
+
+async function callBrowser(name, args = {}) {
+  const action = name.replace(/^browser_/, '')
+  const payload =
+    action === 'open'
+      ? { url: toUrl(args.url), newTab: Boolean(args.new_tab), tab: args.tab }
+      : { ...args }
+  const r = await browser(action, payload)
+  if (r.status !== 200) return text(r.json?.error ?? explain(r), true)
+  if (action === 'screenshot') {
+    return { content: [{ type: 'image', data: r.json.png, mimeType: 'image/png' }], isError: false }
+  }
+  if (action === 'snapshot' || action === 'eval' || action === 'click' || action === 'type') {
+    return text(r.json.result ?? '')
+  }
+  return text(JSON.stringify(r.json, null, 2))
+}
+
 function reply(id, result) {
   process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\n')
 }
@@ -149,6 +288,8 @@ function explain({ status }) {
 }
 
 async function callTool(name, args) {
+  if (BROWSER_TOOLS.some((t) => t.name === name)) return callBrowser(name, args)
+
   if (name === 'set_session_name') {
     const value = String(args?.name ?? '').trim().slice(0, 80)
     if (!value) return text('A non-empty name is required.', true)
@@ -204,7 +345,7 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
         instructions: INSTRUCTIONS
       })
     } else if (method === 'tools/list') {
-      reply(id, { tools: TOOLS })
+      reply(id, { tools: [...TOOLS, ...BROWSER_TOOLS] })
     } else if (method === 'tools/call') {
       reply(id, await callTool(params?.name, params?.arguments))
     } else if (method === 'ping') {

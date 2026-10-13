@@ -268,6 +268,9 @@ body {
   place-items: center;
   padding: 20px;
   z-index: 10;
+  /* Dialogs can sit over the title bar, which drags the window; without
+     opting out, clicks there moved the window instead of reaching them. */
+  -webkit-app-region: no-drag;
 }
 .focused, .picker {
   width: 100%;
@@ -981,3 +984,56 @@ body {
 .summaryfoot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 15px 14px; border-top: 1px solid var(--line); }
 .summaryfoot .closeb { margin-left: 0; }
 .panelhint { margin-left: auto; font-size: .7rem; color: var(--muted); }
+
+/* ---------- a session's browser pane ----------
+   Beside the terminal, only once the session has opened a page. The pages
+   themselves are native views laid over .bslot by the main process; the slot
+   is just the hole they fill. */
+.fbody { flex: 1; min-height: 0; display: flex; }
+.fbody > .fterm { flex: 1 1 0; min-width: 0; }
+.fbody--browser > .fterm { flex-basis: 42%; }
+.bdivider { flex: none; width: 8px; }
+.bdivider span { display: none; }
+.bpane { flex: 1 1 58%; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--card); }
+.bbar { flex: none; display: flex; align-items: center; gap: 8px; padding: 0 0 6px; min-width: 0; }
+.btabs { flex: 1; min-width: 0; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.btab { flex: 0 1 180px; min-width: 70px; display: flex; align-items: center; border: 1px solid var(--line-2); border-radius: 5px; }
+.btab--shown { border-color: var(--accent); }
+.btabsel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 4px 3px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: .72rem;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.btabsel[aria-selected='true'] { color: var(--ink); font-weight: 600; }
+.btabx { flex: none; border: 0; background: transparent; color: var(--muted); font-size: .9rem; padding: 0 7px; cursor: pointer; }
+.btabx:hover { color: var(--ink); }
+.btab :focus-visible, .bctl button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.bload { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; animation: pulse 1s ease-in-out infinite; }
+.bctl { flex: none; display: flex; gap: 4px; }
+.bctl button {
+  border: 1px solid var(--line-2);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: .72rem;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.bctl button:hover { color: var(--ink); border-color: var(--muted); }
+.bctl button[aria-pressed='true'] { color: var(--accent); border-color: var(--accent); }
+.bslots { flex: 1; min-height: 0; display: flex; gap: 6px; }
+.bslot { flex: 1; min-width: 0; background: var(--app); border-radius: 4px; }

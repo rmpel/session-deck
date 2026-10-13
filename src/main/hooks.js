@@ -5,6 +5,7 @@ import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
 import { join, basename } from 'path'
 import { registry } from './registry.js'
+import { browsers } from './browser.js'
 
 export const PORT = 47823
 const CONFIG_DIR = join(homedir(), '.session-deck')
@@ -175,7 +176,7 @@ function apply(payload, deckId, claudePid) {
 export function startHookServer(onPortBusy) {
   const token = getToken()
 
-  const ROUTES = new Set(['/hook', '/mcp/name', '/mcp/test-page', '/mcp/pull-request', '/mcp/todo'])
+  const ROUTES = new Set(['/hook', '/mcp/name', '/mcp/test-page', '/mcp/pull-request', '/mcp/todo', '/mcp/browser'])
 
   const server = createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/sessions') {
@@ -203,6 +204,23 @@ export function startHookServer(onPortBusy) {
       if (body.length > 1_000_000) req.destroy()
     })
     req.on('end', async () => {
+      // Browser tools answer with data, so they get their own branch. The pane
+      // is the calling session's own: resolved the same way as the other tools.
+      if (req.url === '/mcp/browser') {
+        const reply = (status, data) => {
+          res.writeHead(status, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify(data))
+        }
+        try {
+          const { sessionId, claudePid, action, args } = JSON.parse(body)
+          const target = await registry.resolveMcp(sessionId, claudePid)
+          if (!target) return reply(404, { error: 'Session Deck is not tracking this session.' })
+          reply(200, await browsers.handle(target.deckId ?? target.id, String(action ?? ''), args ?? {}))
+        } catch (err) {
+          reply(400, { error: err.message })
+        }
+        return
+      }
       if (req.url !== '/hook') {
         try {
           const { sessionId, claudePid, name, url, title, text } = JSON.parse(body)

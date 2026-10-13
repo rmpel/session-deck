@@ -5,6 +5,7 @@ import StatusPill from './StatusPill.jsx'
 import SessionMeta from './SessionMeta.jsx'
 import EditableName from './EditableName.jsx'
 import SkinFrame from './SkinFrame.jsx'
+import BrowserPanel from './BrowserPanel.jsx'
 import { alertLabel, detachedNote } from './SessionTile.jsx'
 
 const SIZE_KEY = 'deck.focusedSize'
@@ -31,7 +32,7 @@ function savedSize() {
  * terminal is open (resume fallback, /clear), and remounting would flicker and
  * drop scroll position.
  */
-export default function FocusedSession({ session, embedded = false, fontSize = 12.5, theme, onClose, onShowPages, onShowPrs, onShowDiff, onShowSummary, onReopen, onShowTodos, onShowProcesses }) {
+export default function FocusedSession({ session, browser = null, obscured = false, embedded = false, fontSize = 12.5, theme, onClose, onShowPages, onShowPrs, onShowDiff, onShowSummary, onReopen, onShowTodos, onShowProcesses }) {
   const hostRef = useRef(null)
   const termRef = useRef(null)
   const refitRef = useRef(null)
@@ -189,41 +190,56 @@ export default function FocusedSession({ session, embedded = false, fontSize = 1
           </div>
         )}
 
-        {detached ? (
-          <div className="fterm fterm--note">
-            {session.external ? (
-              <>
-                <p>
-                  This session was started outside Session Deck, so there is no terminal to
-                  attach to — the deck mirrors its status from hooks only.
-                </p>
-                <p>Switch to the terminal or editor it runs in to interact with it.</p>
-              </>
-            ) : (
-              <>
-                {detachedNote(session)
-                  .split('\n')
-                  .map((line) => (
-                    <p key={line}>{line.charAt(0).toUpperCase() + line.slice(1)}.</p>
-                  ))}
-                {session.canReopen && (
+        <div className={browser?.tabs.length ? 'fbody fbody--browser' : 'fbody'}>
+          {detached ? (
+            <div className="fterm fterm--note">
+              {session.external ? (
+                <>
                   <p>
-                    <button className="newbtn" type="button" onClick={onReopen}>
-                      {session.status === 'resumable' ? 'Resume session' : 'Reopen session'}
-                    </button>
+                    This session was started outside Session Deck, so there is no terminal to
+                    attach to — the deck mirrors its status from hooks only.
                   </p>
-                )}
-              </>
-            )}
-          </div>
-        ) : (
-          // xterm mounts in an unpadded inner box: FitAddon measures its parent's
-          // border-box height, so padding there made it plan a row too many and
-          // the bottom line — Claude's prompt — was clipped.
-          <div className="fterm">
-            <div className="ftermhost" ref={hostRef} />
-          </div>
-        )}
+                  <p>Switch to the terminal or editor it runs in to interact with it.</p>
+                </>
+              ) : (
+                <>
+                  {detachedNote(session)
+                    .split('\n')
+                    .map((line) => (
+                      <p key={line}>{line.charAt(0).toUpperCase() + line.slice(1)}.</p>
+                    ))}
+                  {session.canReopen && (
+                    <p>
+                      <button className="newbtn" type="button" onClick={onReopen}>
+                        {session.status === 'resumable' ? 'Resume session' : 'Reopen session'}
+                      </button>
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          ) : (
+            // xterm mounts in an unpadded inner box: FitAddon measures its parent's
+            // border-box height, so padding there made it plan a row too many and
+            // the bottom line — Claude's prompt — was clipped.
+            <div className="fterm">
+              <div className="ftermhost" ref={hostRef} />
+            </div>
+          )}
+          {/* Only a session that opened pages has a pane, and the graphics
+              between it and the terminal come and go with it. */}
+          {browser?.tabs.length > 0 && (
+            <>
+              <div className="bdivider" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+                <span />
+              </div>
+              <BrowserPanel uid={session.uid} state={browser} obscured={obscured} />
+            </>
+          )}
+        </div>
 
         <div className="ffoot">
           <StatusPill status={session.status} />

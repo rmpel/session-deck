@@ -69,6 +69,7 @@ export default function App() {
   const [launchError, setLaunchError] = useState(null)
   const [update, setUpdate] = useState({ status: 'idle' })
   const [updateOpen, setUpdateOpen] = useState(false)
+  const [browserState, setBrowserState] = useState({})
 
   useEffect(() => {
     window.deck.updateState().then(setUpdate)
@@ -85,6 +86,11 @@ export default function App() {
   useEffect(() => {
     window.deck.sessions().then(setSessions)
     return window.deck.onSessions(setSessions)
+  }, [])
+
+  useEffect(() => {
+    window.deck.browserState?.().then(setBrowserState)
+    return window.deck.onBrowser?.(setBrowserState)
   }, [])
 
   useEffect(() => {
@@ -170,6 +176,12 @@ export default function App() {
   const waiting = sessions.filter((s) => s.status === 'needs-you').length
   const lines = LINES[settings.density] ?? LINES.small
   const lcars = settings.skin === 'lcars'
+  // Browser pages are native views drawn above the HTML, so they step aside
+  // whenever anything is layered over the session.
+  const obscured = Boolean(
+    picking || links || diffUid || summaryUid || todoUid || procUid || worklogOpen || updateOpen || settingsOpen
+  )
+  const browserFor = (s) => (s ? (browserState[s.uid] ?? null) : null)
   const termFont = TERM_FONT[settings.termFont] ?? TERM_FONT.medium
   const themeKey = `${settings.theme}:${settings.mode}`
 
@@ -201,6 +213,8 @@ export default function App() {
             update={update}
             launchError={launchError}
             onDismissError={() => setLaunchError(null)}
+            browser={browserFor(focused)}
+            obscured={obscured}
             fontSize={termFont}
             theme={themeKey}
             handlers={handlers}
@@ -264,6 +278,8 @@ export default function App() {
         {focused && !lcars && (
           <FocusedSession
             session={focused}
+            browser={browserFor(focused)}
+            obscured={obscured}
             fontSize={termFont}
             theme={themeKey}
             onClose={() => setFocusedUid(null)}
