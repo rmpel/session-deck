@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import SessionTile from './components/SessionTile.jsx'
 import FocusedSession from './components/FocusedSession.jsx'
+import LcarsLayout from './components/LcarsLayout.jsx'
 import NewSession from './components/NewSession.jsx'
 import LinksPanel from './components/LinksPanel.jsx'
 import SummaryPanel from './components/SummaryPanel.jsx'
@@ -127,11 +128,14 @@ export default function App() {
       if (worklogOpen) return setWorklogOpen(false)
       if (settingsOpen) return setSettingsOpen(false)
       if (picking) return setPicking(false)
+      // The console's terminal is part of the screen, not a layer: there Esc
+      // belongs to Claude, which uses it to interrupt.
+      if (settings.skin === 'lcars') return
       setFocusedUid(null)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [links, summaryUid, diffUid, todoUid, procUid, updateOpen, worklogOpen, settingsOpen, picking])
+  }, [links, summaryUid, diffUid, todoUid, procUid, updateOpen, worklogOpen, settingsOpen, picking, settings.skin])
 
   const reopen = useCallback(async (uid) => {
     try {
@@ -165,6 +169,9 @@ export default function App() {
   const running = sessions.filter((s) => s.attached || (s.external && s.status !== 'closed')).length
   const waiting = sessions.filter((s) => s.status === 'needs-you').length
   const lines = LINES[settings.density] ?? LINES.small
+  const lcars = settings.skin === 'lcars'
+  const termFont = TERM_FONT[settings.termFont] ?? TERM_FONT.medium
+  const themeKey = `${settings.theme}:${settings.mode}`
 
   const handlers = (s) => ({
     onShowPages: () => setLinks({ uid: s.uid, kind: 'pages' }),
@@ -179,63 +186,86 @@ export default function App() {
   return (
     <SkinContext.Provider value={settings.skin ?? 'plain'}>
       <div className="app">
-        <header className="titlebar">
-          <span className="wintitle">Session Deck</span>
-          <span className="wincount">
-            {running} running{waiting > 0 && ` · ${waiting} waiting`}
-          </span>
-          <span className="spacer" />
-          {['available', 'downloading', 'ready'].includes(update.status) && (
-            <button className="closeb titlebtn updatebtn" type="button" onClick={() => setUpdateOpen(true)}>
-              {update.status === 'ready' ? 'Restart to update' : `Update to ${update.latest}`}
-            </button>
-          )}
-          <button className="closeb titlebtn" type="button" onClick={() => setWorklogOpen(true)}>
-            Worked on
-          </button>
-          <button className="closeb titlebtn" type="button" onClick={() => setSettingsOpen(true)} title="Theme, skin, text sizes, ticket links and updates">
-            Settings
-          </button>
-          <button className="newbtn" type="button" onClick={() => setPicking(true)}>
-            + New session
-          </button>
-        </header>
-
-        {launchError && (
-          <div className="alertbar launcherror" role="alert">
-            <div className="q">
-              <b>Could not start the session</b>
-              {launchError}
-            </div>
-            <button className="closeb" type="button" onClick={() => setLaunchError(null)}>
-              Dismiss
-            </button>
-          </div>
-        )}
-
-        {sessions.length === 0 ? (
-          <div className="empty">
-            <p>No sessions yet.</p>
-            <button className="newbtn" type="button" onClick={() => setPicking(true)}>
-              Start a session
-            </button>
-          </div>
+        {lcars ? (
+          <LcarsLayout
+            sessions={sessions}
+            focused={focused}
+            onSelect={setFocusedUid}
+            onNew={() => setPicking(true)}
+            onSettings={() => setSettingsOpen(true)}
+            onWorklog={() => setWorklogOpen(true)}
+            onUpdate={() => {
+              setUpdateOpen(true)
+              if (!['available', 'downloading', 'ready'].includes(update.status)) window.deck.checkForUpdate()
+            }}
+            update={update}
+            launchError={launchError}
+            onDismissError={() => setLaunchError(null)}
+            fontSize={termFont}
+            theme={themeKey}
+            handlers={handlers}
+          />
         ) : (
-          <div className="deck">
-            {sessions.map((s) => (
-              <SessionTile key={s.uid} session={s} lines={lines} onOpen={() => setFocusedUid(s.uid)} {...handlers(s)} />
-            ))}
-          </div>
+          <>
+            <header className="titlebar">
+              <span className="wintitle">Session Deck</span>
+              <span className="wincount">
+                {running} running{waiting > 0 && ` · ${waiting} waiting`}
+              </span>
+              <span className="spacer" />
+              {['available', 'downloading', 'ready'].includes(update.status) && (
+                <button className="closeb titlebtn updatebtn" type="button" onClick={() => setUpdateOpen(true)}>
+                  {update.status === 'ready' ? 'Restart to update' : `Update to ${update.latest}`}
+                </button>
+              )}
+              <button className="closeb titlebtn" type="button" onClick={() => setWorklogOpen(true)}>
+                Worked on
+              </button>
+              <button className="closeb titlebtn" type="button" onClick={() => setSettingsOpen(true)} title="Theme, skin, text sizes, ticket links and updates">
+                Settings
+              </button>
+              <button className="newbtn" type="button" onClick={() => setPicking(true)}>
+                + New session
+              </button>
+            </header>
+
+            {launchError && (
+              <div className="alertbar launcherror" role="alert">
+                <div className="q">
+                  <b>Could not start the session</b>
+                  {launchError}
+                </div>
+                <button className="closeb" type="button" onClick={() => setLaunchError(null)}>
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {sessions.length === 0 ? (
+              <div className="empty">
+                <p>No sessions yet.</p>
+                <button className="newbtn" type="button" onClick={() => setPicking(true)}>
+                  Start a session
+                </button>
+              </div>
+            ) : (
+              <div className="deck">
+                {sessions.map((s) => (
+                  <SessionTile key={s.uid} session={s} lines={lines} onOpen={() => setFocusedUid(s.uid)} {...handlers(s)} />
+                ))}
+              </div>
+            )}
+          </>
         )}
 
         {picking && (
           <NewSession onPickSite={launch} onPickDirectory={launchDirectory} onClose={() => setPicking(false)} />
         )}
-        {focused && (
+        {focused && !lcars && (
           <FocusedSession
             session={focused}
-            fontSize={TERM_FONT[settings.termFont] ?? TERM_FONT.medium}
-            theme={`${settings.theme}:${settings.mode}`}
+            fontSize={termFont}
+            theme={themeKey}
             onClose={() => setFocusedUid(null)}
             {...handlers(focused)}
           />

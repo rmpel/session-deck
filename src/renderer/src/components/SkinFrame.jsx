@@ -54,6 +54,9 @@ export default function SkinFrame({ kind }) {
       focusable="false"
       style={active ? undefined : { display: 'none' }}
     >
+      {shape?.fills?.map(({ d, tone }, n) => (
+        <path key={`p${n}`} className={`skinframe-fill skinframe-fill--${tone}`} d={d} />
+      ))}
       {shape?.faint.map((pts, n) => (
         <polyline key={`f${n}`} className="skinframe-faint" points={toPoints(pts)} />
       ))}

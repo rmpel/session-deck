@@ -3,6 +3,7 @@ import { join } from 'path'
 import { existsSync } from 'fs'
 import { listProjects, getProject, projectForDirectory, tildify } from './local.js'
 import { statSync } from 'fs'
+import { hostname } from 'os'
 import { registry } from './registry.js'
 import { startHookServer, HOOK_LOG } from './hooks.js'
 import { installBridgeCopy } from './bridge-copy.js'
@@ -177,6 +178,8 @@ app.whenReady().then(() => {
   ipcMain.handle('deck:update-download', () => updater.download())
   ipcMain.handle('deck:update-install', () => updater.install())
 
+  // The LCARS console shows the computer's name as its title.
+  ipcMain.handle('deck:hostname', () => hostname().replace(/\.local$/, ''))
   ipcMain.handle('deck:projects', () => listProjects())
   ipcMain.handle('deck:sessions', () => registry.serialize())
   ipcMain.handle('deck:pty-size', (_e, uid) => registry.ptySize(uid))

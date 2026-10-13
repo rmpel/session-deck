@@ -50,6 +50,7 @@ contextBridge.exposeInMainWorld('deck', {
   launchDirectory: async () => null,
   sessions: async () => sessions,
   ptySize: async () => ({ cols: 120, rows: 32 }),
+  hostname: async () => 'ENTERPRISE-D',
   launch: async () => null,
   resume: async () => null,
   buffer: async () => '\x1b[2m> add a department filter to the vacancy block\x1b[0m\r\n\r\n● Edit render.php\r\n',

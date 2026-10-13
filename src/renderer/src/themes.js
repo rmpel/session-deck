@@ -136,6 +136,34 @@ export const THEMES = [
     }
   },
   {
+    key: 'lcars',
+    label: 'LCARS',
+    light: {
+      app: '#f2ece0', chrome: '#e6dccb', card: '#fffaf0', term: '#0b0a10', termInk: '#f5d6a8',
+      ink: '#1d1610', ink2: '#4a3b2c', muted: '#76685a', line: '#e0d5c2', line2: '#c9b99f',
+      // Burnt orange: the screen orange cannot carry light text.
+      accent: '#b35c00', accentSoft: '#fbe6cc',
+      semantic: {
+        work: '#4646c0', workBg: '#e6e6fb',
+        need: '#c42b2b', needBg: '#fbe3e3', needEdge: '#e05252', needCard: '#fdf2f2',
+        idle: '#8a4f8a', idleBg: '#f1e4f1'
+      }
+    },
+    dark: {
+      // Panels are the screen itself: black, defined only by their frames.
+      app: '#000000', chrome: '#000000', card: '#000000', term: '#0b0a12', termInk: '#f5d6a8',
+      ink: '#ffd9a8', ink2: '#e0bf94', muted: '#a596b4', line: '#1d1a26', line2: '#3a3448',
+      accent: '#ff9900', accentSoft: '#2b1a00',
+      // Red alert, not amber: amber beside an orange accent is one colour.
+      // Blue and lavender are the other two LCARS panel colours.
+      semantic: {
+        work: '#9999ff', workBg: '#16163a',
+        need: '#ff5555', needBg: '#3a0d0d', needEdge: '#ff5555', needCard: '#140404',
+        done: '#99cc66', doneBg: '#14240c', idle: '#cc99cc', idleBg: '#2a1a2a'
+      }
+    }
+  },
+  {
     key: 'gothic',
     label: 'Gothic',
     light: {

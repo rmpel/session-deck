@@ -29,7 +29,7 @@ const SCENARIOS = {
   appearance: ["[...document.querySelectorAll('.titlebar button')].find(b => /Settings/.test(b.textContent)).click()"],
   // Themes are applied from JS now, so a scenario sets the saved settings and reloads.
   ...Object.fromEntries(
-    ['candy', 'gothic', 'cyberpunk', 'nature', 'electric', 'spaceship', 'default'].flatMap((theme) =>
+    ['candy', 'gothic', 'cyberpunk', 'nature', 'electric', 'spaceship', 'default', 'lcars'].flatMap((theme) =>
       ['light', 'dark'].map((mode) => [
         `${theme}-${mode}`,
         [
@@ -57,7 +57,7 @@ const SCENARIOS = {
   })(),
   // Skins, each with its natural theme and a mismatched one: they must hold up in any.
   ...Object.fromEntries(
-    [['cyberdeck', 'cyberpunk', 'dark'], ['cyberdeck', 'default', 'light'], ['hud', 'spaceship', 'dark'], ['hud', 'candy', 'light']].flatMap(([skin, theme, mode]) => {
+    [['cyberdeck', 'cyberpunk', 'dark'], ['cyberdeck', 'default', 'light'], ['hud', 'spaceship', 'dark'], ['hud', 'candy', 'light'], ['lcars', 'lcars', 'dark'], ['lcars', 'lcars', 'light'], ['lcars', 'nature', 'dark']].flatMap(([skin, theme, mode]) => {
       const set = `localStorage.setItem('deck.appearance', JSON.stringify({ skin: '${skin}', theme: '${theme}', mode: '${mode}', density: 'small', tileFont: 'medium', termFont: 'medium' })); location.reload()`
       return [
         [`skin-${skin}-${theme}-${mode}`, [set]],
@@ -66,6 +66,16 @@ const SCENARIOS = {
       ]
     })
   ),
+  // The LCARS skin is one console rather than tiles: select from its readout.
+  ...(() => {
+    const set = (mode) => `localStorage.setItem('deck.appearance', JSON.stringify({ skin: 'lcars', theme: 'lcars', mode: '${mode}', density: 'small', tileFont: 'medium', termFont: 'medium' })); location.reload()`
+    return {
+      'lcars-console': [set('dark')],
+      'lcars-console-selected': [set('dark'), "document.querySelector('.lc-sess').click()"],
+      'lcars-console-light': [set('light'), "document.querySelector('.lc-sess').click()"],
+      'lcars-console-dialog': [set('dark'), "[...document.querySelectorAll('.lc-btn')].find(b => /Settings/.test(b.textContent)).click()"]
+    }
+  })(),
   shot_deck: ["localStorage.setItem('deck.appearance', JSON.stringify({ theme: 'default', mode: 'dark', density: 'small', tileFont: 'medium', termFont: 'medium', background: { path: null, dim: 'medium' }, tileOpacity: 1 })); location.reload()"],
   shot_focused: ["localStorage.removeItem('deck.focusedSize'); localStorage.setItem('deck.appearance', JSON.stringify({ theme: 'default', mode: 'dark', density: 'small', tileFont: 'medium', termFont: 'medium', background: { path: null, dim: 'medium' }, tileOpacity: 1 })); location.reload()", "document.querySelector('.card').click()"],
   shot_summary: ["localStorage.removeItem('deck.focusedSize'); localStorage.setItem('deck.appearance', JSON.stringify({ theme: 'default', mode: 'dark', density: 'small', tileFont: 'medium', termFont: 'medium', background: { path: null, dim: 'medium' }, tileOpacity: 1 })); location.reload()", "document.querySelector('.card').click()", "[...document.querySelectorAll('.links a')].find(a => a.textContent.trim() === 'Summary').click()"],

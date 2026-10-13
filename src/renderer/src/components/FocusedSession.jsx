@@ -24,11 +24,14 @@ function savedSize() {
  * changes, so Claude's TUI re-flows on a deliberate resize, never on open.
  * Everything the tile shows is shown here too.
  *
+ * `embedded` puts the same view inside a layout (the LCARS console) instead
+ * of a dialog: no overlay, no own frame or size, and no close button.
+ *
  * The terminal keys on `uid`, not `id`: Claude's session id can change while the
  * terminal is open (resume fallback, /clear), and remounting would flicker and
  * drop scroll position.
  */
-export default function FocusedSession({ session, fontSize = 12.5, theme, onClose, onShowPages, onShowPrs, onShowDiff, onShowSummary, onReopen, onShowTodos, onShowProcesses }) {
+export default function FocusedSession({ session, embedded = false, fontSize = 12.5, theme, onClose, onShowPages, onShowPrs, onShowDiff, onShowSummary, onReopen, onShowTodos, onShowProcesses }) {
   const hostRef = useRef(null)
   const termRef = useRef(null)
   const refitRef = useRef(null)
@@ -38,7 +41,7 @@ export default function FocusedSession({ session, fontSize = 12.5, theme, onClos
   // Remember the size the user dragged the dialog to.
   useEffect(() => {
     const el = dialogRef.current
-    if (!el) return
+    if (!el || embedded) return
     let t
     const ro = new ResizeObserver(() => {
       clearTimeout(t)
@@ -53,7 +56,7 @@ export default function FocusedSession({ session, fontSize = 12.5, theme, onClos
       clearTimeout(t)
       ro.disconnect()
     }
-  }, [])
+  }, [embedded])
   const detached = !session.attached
   const blocked = session.status === 'needs-you'
 
@@ -152,17 +155,16 @@ export default function FocusedSession({ session, fontSize = 12.5, theme, onClos
     refitRef.current?.()
   }, [fontSize])
 
-  return (
-    <div className="overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+  const view = (
       <div
-        className="focused"
+        className={embedded ? 'focused focused--embedded' : 'focused'}
         ref={dialogRef}
-        style={initialSize.current ?? undefined}
-        role="dialog"
-        aria-modal="true"
+        style={embedded ? undefined : (initialSize.current ?? undefined)}
+        role={embedded ? 'region' : 'dialog'}
+        aria-modal={embedded ? undefined : 'true'}
         aria-label={session.name ?? 'Session'}
       >
-        <SkinFrame kind="window" />
+        {!embedded && <SkinFrame kind="window" />}
         <div className="fhead">
           <div className="fheadtext">
             <EditableName session={session} />
@@ -171,9 +173,11 @@ export default function FocusedSession({ session, fontSize = 12.5, theme, onClos
               {session.external && <span className="badge">external</span>}
             </div>
           </div>
-          <button className="closeb" type="button" onClick={onClose}>
-            Esc · close
-          </button>
+          {!embedded && (
+            <button className="closeb" type="button" onClick={onClose}>
+              Esc · close
+            </button>
+          )}
         </div>
 
         {blocked && (
@@ -248,6 +252,12 @@ export default function FocusedSession({ session, fontSize = 12.5, theme, onClos
           </button>
         </div>
       </div>
+  )
+
+  if (embedded) return view
+  return (
+    <div className="overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      {view}
     </div>
   )
 }

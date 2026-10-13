@@ -9,6 +9,8 @@
  * - `lines`: polylines drawn as the frame (closed ones repeat their start).
  * - `faint`: the same, drawn at lower emphasis.
  * - `dots`: small filled squares, [x, y, size].
+ * - `fills`: filled SVG paths, { d, tone }. Tone 1–3 picks the colour in
+ *   skins.css, so a frame can be several colours and still follow the theme.
  *
  * `kind` is 'tile', 'dialog' or 'window' (the focused session, which keeps a
  * square bottom-right corner: that is where its resize handle is).
@@ -17,7 +19,8 @@
 export const SKINS = [
   { key: 'plain', label: 'Plain', title: 'Rounded corners, no frames' },
   { key: 'cyberdeck', label: 'Cyberdeck', title: 'Stepped panels with a traced bezel, like hardware' },
-  { key: 'hud', label: 'HUD', title: 'Bracketed frames and markers, like a ship’s display' }
+  { key: 'hud', label: 'HUD', title: 'Bracketed frames and markers, like a ship’s display' },
+  { key: 'lcars', label: 'LCARS', title: 'Rounded elbows and segmented bars, like a starship console' }
 ]
 
 const close = (pts) => [...pts, pts[0]]
@@ -132,10 +135,80 @@ function hud(kind, w, h) {
   return { clip: null, lines, faint, dots }
 }
 
+/**
+ * LCARS: a filled frame down the left side only. Rounded elbows at the top-
+ * and bottom-left join a thick left bar to thin bars along the top and bottom;
+ * the bars are split into blocks of different colours, and end in a rounded
+ * cap. The right side stays open, as on the real panels.
+ *
+ * `bar` is the left bar's width, `rail` the top/bottom bars' thickness, `outer`
+ * and `inner` the elbow radii, `reach` how far an elbow runs along the top and
+ * `drop` how far down the side.
+ */
+const LCARS = {
+  tile: { bar: 10, rail: 7, outer: 18, inner: 6, reach: 90, drop: 30, gap: 3 },
+  dialog: { bar: 16, rail: 10, outer: 26, inner: 8, reach: 140, drop: 44, gap: 4 },
+  window: { bar: 16, rail: 10, outer: 26, inner: 8, reach: 140, drop: 44, gap: 4, squareCorner: true }
+}
+
+function lcars(kind, w, h) {
+  const { bar, rail, outer, inner, reach: maxReach, drop: maxDrop, gap, squareCorner } = LCARS[kind]
+  const reach = Math.min(maxReach, w * 0.22)
+  const drop = Math.min(maxDrop, (h - gap) / 3)
+  const fills = []
+
+  // Elbows. The bottom one is the top one mirrored, so its arcs turn the other way.
+  fills.push({
+    tone: 1,
+    d: `M0 ${drop} V${outer} A${outer} ${outer} 0 0 1 ${outer} 0 H${reach} V${rail} H${bar + inner} A${inner} ${inner} 0 0 0 ${bar} ${rail + inner} V${drop} Z`
+  })
+  fills.push({
+    tone: 1,
+    d: `M0 ${h - drop} V${h - outer} A${outer} ${outer} 0 0 0 ${outer} ${h} H${reach} V${h - rail} H${bar + inner} A${inner} ${inner} 0 0 1 ${bar} ${h - rail - inner} V${h - drop} Z`
+  })
+
+  // The left bar between them: two blocks, or one when the panel is short.
+  const top = drop + gap
+  const bottom = h - drop - gap
+  if (bottom - top > 40) {
+    const split = Math.round(top + (bottom - top) * 0.62)
+    fills.push({ tone: 2, d: rect(0, top, bar, split - gap / 2) })
+    fills.push({ tone: 3, d: rect(0, split + gap / 2, bar, bottom) })
+  } else if (bottom > top) {
+    fills.push({ tone: 2, d: rect(0, top, bar, bottom) })
+  }
+
+  // Rails: blocks across the top and bottom, the last one capped. The focused
+  // window keeps its bottom-right corner clear for the resize handle.
+  const rails = (y, end, parts, capped) => {
+    let x = reach + gap
+    const span = end - x
+    parts.forEach(([share, tone], n) => {
+      const last = n === parts.length - 1
+      const x2 = last ? end : Math.round(x + span * share)
+      if (x2 - x > rail) fills.push({ tone, d: last && capped ? capRight(x, y, x2, rail) : rect(x, y, x2, y + rail) })
+      x = x2 + gap
+    })
+  }
+  rails(0, w, [[0.16, 2], [0.62, 1], [0, 3]], true)
+  rails(h - rail, squareCorner ? w - 24 : w, [[0.46, 3], [0.22, 2], [0, 1]], !squareCorner)
+
+  return { clip: null, lines: [], faint: [], dots: [], fills }
+}
+
+const rect = (x1, y1, x2, y2) => `M${x1} ${y1} H${x2} V${y2} H${x1} Z`
+
+/** A bar whose right end is a half circle. */
+function capRight(x1, y, x2, height) {
+  const r = height / 2
+  return `M${x1} ${y} H${x2 - r} A${r} ${r} 0 0 1 ${x2 - r} ${y + height} H${x1} Z`
+}
+
 export function skinShape(skin, kind, w, h) {
   if (!w || !h) return null
   if (skin === 'cyberdeck') return cyberdeck(kind, w, h)
   if (skin === 'hud') return hud(kind, w, h)
+  if (skin === 'lcars') return lcars(kind, w, h)
   return null
 }
 

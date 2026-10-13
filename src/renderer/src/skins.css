@@ -194,3 +194,288 @@
 }
 
 [data-skin='hud'] :is(.newbtn, .closeb, .filter, .density, .wincount) { border-radius: 0; }
+
+/* ==================================================================== lcars
+   A starship console. The deck is one screen (LcarsLayout.jsx): the sessions
+   are a readout across the top, the selected one runs in a bracketed viewer,
+   elbows and bars frame it all, and the computer's name and the clock are
+   its titles. Dialogs keep a frame of filled elbows (skins.js), buttons and
+   pills are capsules, and labels are condensed capitals.
+
+   Colours are theme tokens, so the console follows any theme; in the LCARS
+   theme they come out as its orange, lavender, blue, red, peach and tan. */
+
+:root[data-skin='lcars'] {
+  --tone-1: var(--accent);
+  --tone-2: var(--idle);
+  --tone-3: var(--work);
+  --tone-red: color-mix(in srgb, var(--need) 72%, var(--app));
+  --tone-peach: color-mix(in srgb, var(--accent) 55%, var(--ink));
+  --tone-tan: var(--ink);
+  /* Condensed faces that ship with the OS, so nothing is downloaded. */
+  --f-body: 'Avenir Next Condensed', 'Bahnschrift SemiCondensed', 'Arial Narrow', sans-serif;
+}
+.skinframe-fill--1, .lc-1 { fill: var(--tone-1); }
+.skinframe-fill--2, .lc-2 { fill: var(--tone-2); }
+.skinframe-fill--3, .lc-3 { fill: var(--tone-3); }
+.lc-red { fill: var(--tone-red); }
+.lc-bg-1 { background: var(--tone-1); }
+.lc-bg-2 { background: var(--tone-2); }
+.lc-bg-3 { background: var(--tone-3); }
+.lc-bg-red { background: var(--tone-red); }
+.lc-bg-peach { background: var(--tone-peach); }
+.lc-bg-tan { background: var(--tone-tan); }
+
+/* ---- the console ---- */
+/* A console is a solid screen: no wallpaper, no scrim, whatever is set. */
+:root[data-skin='lcars'] body { background-image: none; }
+[data-skin='lcars'] .app { background: var(--app); }
+.lcars {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* Room above for the window's traffic lights, which is also where it drags. */
+  padding: 34px 0 14px 14px;
+  -webkit-app-region: drag;
+  font-family: var(--f-body);
+  overflow: hidden;
+}
+.lcars :is(button, .lc-screen, .lc-readout, .alertbar) { -webkit-app-region: no-drag; }
+.lc-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Left column: stacked blocks, labels at their bottom right, like the panels
+   they copy. The block next to an elbow runs into it without a gap. */
+.lc-col { flex: none; width: 150px; display: flex; flex-direction: column; gap: 5px; }
+.lc-block {
+  min-height: 44px;
+  padding: 4px 10px 3px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  color: var(--app);
+  font-size: .95rem;
+  font-weight: 600;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  line-height: 1.1;
+  text-align: right;
+}
+.lc-grow { flex: 1; }
+.lc-tall { min-height: 120px; }
+.lc-alert { background: var(--need); animation: lcars-alert 1.4s steps(1, end) infinite; }
+.lc-top .lc-col > :last-child { margin-bottom: 0; }
+
+.lc-top { flex: none; display: flex; gap: 22px; min-height: 0; max-height: 40vh; }
+.lc-top .lc-col { gap: 5px; }
+.lc-body { flex: 1; min-height: 0; display: flex; gap: 22px; }
+.lc-body .lc-col { gap: 5px; }
+
+/* The sweeps: an elbow out of the column, carried across by its rail. The
+   first sweep down hangs off the top section, the second rises into the body. */
+.lc-sweep { flex: none; display: flex; align-items: stretch; }
+.lc-sweep + .lc-sweep { margin-top: 6px; }
+.lc-elbow { flex: none; display: block; }
+.lc-rail { flex: 1; display: flex; gap: 6px; height: 64px; padding-left: 6px; }
+.lc-rail--end { align-items: flex-end; }
+.lc-rail--start { align-items: flex-start; }
+.lc-rail span { height: 20px; }
+.lc-rail--start span:first-child, .lc-rail--end span:first-child { margin-left: -6px; }
+
+/* ---- the readout: sessions, names and status only ---- */
+.lc-readout { flex: 1; min-width: 0; overflow-y: auto; padding-top: 6px; }
+.lc-sessions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1px 24px;
+}
+.lc-sess {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 1px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+}
+.lc-sess:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.lc-sess:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+.lc-sess[aria-pressed='true'] { background: var(--accent); color: var(--app); }
+.lc-num { flex: none; color: var(--ink); opacity: .8; font-variant-numeric: tabular-nums; }
+.lc-sess[aria-pressed='true'] .lc-num { color: inherit; }
+.lc-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lc-state { flex: none; font-size: .82rem; }
+.lc-s-working .lc-state { color: var(--work); }
+.lc-s-done .lc-state { color: var(--done); }
+.lc-s-needs-you .lc-state { color: var(--need); animation: lcars-alert 1.4s steps(1, end) infinite; }
+:is(.lc-s-closed, .lc-s-resumable, .lc-s-ready, .lc-s-starting) .lc-state { color: var(--idle); }
+.lc-s-closed { opacity: .55; }
+.lc-sess[aria-pressed='true'] .lc-state { color: inherit; }
+.lc-none { margin: 0; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+
+/* ---- title and command capsules ---- */
+.lc-command { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; padding-right: 0; }
+.lc-title {
+  margin: -8px 0 0;
+  padding-right: 14px;
+  color: var(--accent);
+  font-size: 3.6rem;
+  font-weight: 600;
+  line-height: .95;
+  letter-spacing: -.01em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.lc-buttons { display: grid; grid-template-columns: repeat(2, 150px); gap: 10px; }
+.lc-btn {
+  height: 44px;
+  padding: 0 18px 5px;
+  border: 0;
+  border-radius: 999px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  color: var(--app);
+  font: inherit;
+  font-size: .95rem;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.lc-buttons .lc-btn:nth-child(even) { border-radius: 999px 0 0 999px; }
+.lc-btn:hover { filter: brightness(1.12); }
+.lc-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+/* ---- the viewer ---- */
+.lc-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding-right: 14px; }
+.lc-main > .launcherror { flex: none; }
+.lc-viewer { flex: 1; min-height: 0; display: flex; align-items: stretch; gap: 0; }
+.lc-screen { flex: 1; min-width: 0; min-height: 0; display: flex; }
+.lc-bracket { flex: none; display: flex; gap: 8px; padding-block: 4px; }
+.lc-bracket--right { flex-direction: row-reverse; }
+.lc-brace {
+  width: 34px;
+  border: 0 solid var(--tone-peach);
+  border-width: 14px 0 14px 16px;
+  border-radius: 22px 0 0 22px;
+}
+.lc-bracket--right .lc-brace { border-width: 14px 16px 14px 0; border-radius: 0 22px 22px 0; }
+.lc-scale {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  padding-block: 18px;
+  font-size: .9rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.lc-scale span { color: var(--tone-3); position: relative; }
+.lc-scale span:nth-child(3n + 2) { color: var(--tone-1); }
+/* A tick from each figure towards the brace. */
+.lc-scale span::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 6px;
+  height: 2px;
+  background: var(--tone-1);
+}
+.lc-bracket--left .lc-scale span::after { left: calc(100% + 2px); }
+.lc-bracket--right .lc-scale span::after { right: calc(100% + 2px); }
+
+.lc-standby {
+  flex: 1;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 6px;
+  text-transform: uppercase;
+}
+.lc-standby p { margin: 0; color: var(--accent); font-size: 2.4rem; font-weight: 600; letter-spacing: .08em; }
+.lc-standby .lc-hint { font-size: .95rem; color: var(--muted); letter-spacing: .05em; }
+.lc-standby .lc-btn { margin-top: 14px; min-width: 170px; }
+
+/* The selected session, set into the viewer: no frame or shadow of its own. */
+.focused--embedded {
+  flex: 1;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  max-height: none;
+  resize: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.focused--embedded > .fhead { padding: 6px 4px 8px; border-bottom: 0; }
+.focused--embedded .fhead .sname { color: var(--accent); font-size: 1.25rem; }
+.focused--embedded > .alertbar--top { border-radius: 999px; margin: 0 0 8px; padding: 6px 18px; }
+.focused--embedded .fterm { border-radius: 4px; }
+.focused--embedded > .ffoot { padding: 10px 4px 0; }
+
+.lc-clock {
+  flex: none;
+  align-self: flex-end;
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+.lc-clock time { font-size: 3rem; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+.lc-date { font-size: 1rem; font-weight: 600; letter-spacing: .05em; color: var(--tone-peach); }
+
+@keyframes lcars-alert { 50% { opacity: .55; } }
+
+/* ---- dialogs, pills and buttons elsewhere in the app ---- */
+[data-skin='lcars'] :is(.picker, .focused:not(.focused--embedded), .diffwin) > .fhead { padding: 24px 20px 12px 34px; }
+[data-skin='lcars'] .ffoot { padding: 12px 20px 24px 34px; }
+[data-skin='lcars'] :is(.picker, .diffwin) { padding: 0 0 18px 18px; }
+[data-skin='lcars'] .focused--embedded > .ffoot { padding: 10px 4px 0; }
+
+[data-skin='lcars'] :is(.sname, .wintitle, .listlabel, .tabs button) {
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+[data-skin='lcars'] .fhead .sname { font-size: 1.05rem; color: var(--accent); }
+
+/* Status: a filled capsule in the status colour, its label in the panel
+   colour. Blocked blinks, as a console alert would; reduced motion stops it. */
+[data-skin='lcars'] .pill {
+  border-radius: 999px;
+  background: currentColor;
+  padding: 2px 14px 1px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  -webkit-text-fill-color: var(--card);
+}
+[data-skin='lcars'] .pill::before { display: none; }
+[data-skin='lcars'] .p-need { animation: lcars-alert 1.4s steps(1, end) infinite; }
+
+[data-skin='lcars'] :is(.newbtn, .closeb) {
+  border: 0;
+  border-radius: 999px;
+  padding: 4px 16px 3px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  font-weight: 600;
+}
+[data-skin='lcars'] .closeb { background: var(--tone-2); color: var(--card); }
+[data-skin='lcars'] :is(.newbtn, .closeb):hover { filter: brightness(1.12); }
+[data-skin='lcars'] :is(.newbtn, .closeb):focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+[data-skin='lcars'] :is(.filter, .density, .wincount) { border-radius: 999px; }
