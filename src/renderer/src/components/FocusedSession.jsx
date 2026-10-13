@@ -10,6 +10,29 @@ import { alertLabel, detachedNote } from './SessionTile.jsx'
 
 const SIZE_KEY = 'deck.focusedSize'
 
+/**
+ * Nerd Fonts first: shell prompts (Powerline, oh-my-posh, starship) draw their
+ * arrows and icons from them, and the system monospace faces have none. The
+ * first installed one wins; the system faces remain the fallback.
+ */
+const NERD_FONTS = [
+  'FiraCode Nerd Font Mono',
+  'JetBrainsMono Nerd Font Mono',
+  'MesloLGS Nerd Font Mono',
+  'MesloLGS NF',
+  'Hack Nerd Font Mono',
+  'CaskaydiaCove Nerd Font Mono',
+  'SauceCodePro Nerd Font Mono'
+]
+const SYSTEM_MONO = ['ui-monospace', 'SFMono-Regular', 'Menlo', '"Cascadia Mono"', 'Consolas', 'monospace']
+
+/** A chosen font goes first; the automatic list still covers what it lacks. */
+export function terminalFonts(chosen) {
+  const quote = (f) => (/^[\w-]+$/.test(f) ? f : `"${f.replace(/"/g, '')}"`)
+  const first = String(chosen ?? '').trim()
+  return [...(first ? [quote(first)] : []), ...NERD_FONTS.map(quote), ...SYSTEM_MONO].join(', ')
+}
+
 function savedSize() {
   try {
     return JSON.parse(localStorage.getItem(SIZE_KEY)) ?? null
@@ -32,7 +55,7 @@ function savedSize() {
  * terminal is open (resume fallback, /clear), and remounting would flicker and
  * drop scroll position.
  */
-export default function FocusedSession({ session, browser = null, obscured = false, embedded = false, fontSize = 12.5, theme, onClose, onShowPages, onShowPrs, onShowDiff, onShowSummary, onReopen, onShowTodos, onShowProcesses }) {
+export default function FocusedSession({ session, browser = null, obscured = false, embedded = false, fontSize = 12.5, fontFamily = '', theme, onClose, onShowPages, onShowPrs, onShowDiff, onShowSummary, onReopen, onShowTodos, onShowProcesses }) {
   const hostRef = useRef(null)
   const termRef = useRef(null)
   const refitRef = useRef(null)
@@ -58,6 +81,7 @@ export default function FocusedSession({ session, browser = null, obscured = fal
       ro.disconnect()
     }
   }, [embedded])
+  const isView = session.kind === 'view'
   const detached = !session.attached
   const blocked = session.status === 'needs-you'
 
@@ -79,7 +103,7 @@ export default function FocusedSession({ session, browser = null, obscured = fal
       term = new Terminal({
         cols,
         rows,
-        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, "Cascadia Mono", Consolas, monospace',
+        fontFamily: terminalFonts(fontFamily),
         fontSize,
         theme: {
           background: token('--term', '#100e0f'),
@@ -156,6 +180,14 @@ export default function FocusedSession({ session, browser = null, obscured = fal
     refitRef.current?.()
   }, [fontSize])
 
+  useEffect(() => {
+    const term = termRef.current
+    const family = terminalFonts(fontFamily)
+    if (!term || term.options.fontFamily === family) return
+    term.options.fontFamily = family
+    refitRef.current?.()
+  }, [fontFamily])
+
   const view = (
       <div
         className={embedded ? 'focused focused--embedded' : 'focused'}
@@ -190,8 +222,11 @@ export default function FocusedSession({ session, browser = null, obscured = fal
           </div>
         )}
 
-        <div className={browser?.tabs.length ? 'fbody fbody--browser' : 'fbody'}>
-          {detached ? (
+        <div className={isView ? 'fbody fbody--view' : browser?.tabs.length ? 'fbody fbody--browser' : 'fbody'}>
+          {isView ? (
+            // A saved view is only its page.
+            !browser?.tabs.length && <div className="fterm fterm--note"><p>Loading {session.project.domain}…</p></div>
+          ) : detached ? (
             <div className="fterm fterm--note">
               {session.external ? (
                 <>
@@ -230,12 +265,14 @@ export default function FocusedSession({ session, browser = null, obscured = fal
               between it and the terminal come and go with it. */}
           {browser?.tabs.length > 0 && (
             <>
-              <div className="bdivider" aria-hidden="true">
-                <span />
-                <span />
-                <span />
-                <span />
-              </div>
+              {!isView && (
+                <div className="bdivider" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              )}
               <BrowserPanel uid={session.uid} state={browser} obscured={obscured} />
             </>
           )}
@@ -243,17 +280,19 @@ export default function FocusedSession({ session, browser = null, obscured = fal
 
         <div className="ffoot">
           <StatusPill status={session.status} />
-          <SessionMeta
-            session={session}
-            full
-            onShowPages={onShowPages}
-            onShowPrs={onShowPrs}
-            onShowDiff={onShowDiff}
-            onShowSummary={onShowSummary}
-            onReopen={onReopen}
-            onShowTodos={onShowTodos}
-            onShowProcesses={onShowProcesses}
-          />
+          {!isView && (
+            <SessionMeta
+              session={session}
+              full
+              onShowPages={onShowPages}
+              onShowPrs={onShowPrs}
+              onShowDiff={onShowDiff}
+              onShowSummary={onShowSummary}
+              onReopen={onReopen}
+              onShowTodos={onShowTodos}
+              onShowProcesses={onShowProcesses}
+            />
+          )}
           <button
             className="closeb"
             type="button"
@@ -264,7 +303,7 @@ export default function FocusedSession({ session, browser = null, obscured = fal
               onClose()
             }}
           >
-            {session.attached ? 'End session' : 'Remove from deck'}
+            {session.attached ? 'End session' : isView ? 'Close view' : 'Remove from deck'}
           </button>
         </div>
       </div>

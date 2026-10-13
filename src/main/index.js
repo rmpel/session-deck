@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Notification, shell, Menu, nativeImage, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, Notification, shell, Menu, nativeImage, dialog, nativeTheme } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
 import { listProjects, getProject, projectForDirectory, tildify } from './local.js'
@@ -94,6 +94,8 @@ function createWindow() {
     width: 1180,
     height: 820,
     minWidth: 720,
+    // The LCARS console stacks its sections; shorter than this they collapse.
+    minHeight: 560,
     show: false,
     title: 'Session Deck',
     // macOS: content runs under the traffic lights. Windows: a normal frame,
@@ -173,6 +175,10 @@ app.whenReady().then(() => {
   })
 
   browsers.on('change', (state) => send('deck:browser', state))
+  // Pages in the panes follow the deck's light/dark mode (prefers-color-scheme).
+  ipcMain.on('deck:color-scheme', (_e, mode) => {
+    nativeTheme.themeSource = mode === 'dark' || mode === 'light' ? mode : 'system'
+  })
   ipcMain.handle('deck:browser-state', () => browsers.serialize())
   ipcMain.on('deck:browser-layout', (_e, { uid, slots }) => browsers.layout(uid, slots))
   ipcMain.on('deck:browser-ui', (_e, { uid, action, tab }) => browsers.ui(uid, action, tab))
@@ -242,6 +248,23 @@ app.whenReady().then(() => {
       return { path: dir, display: tildify(dir), name: project.name, site: project.id ? project.name : null }
     })
   )
+
+  ipcMain.handle('deck:launch-shell', (_e, dir) => registry.launchShell(dir).deckId)
+
+  // A saved view: web pages only, whatever the renderer sends.
+  ipcMain.handle('deck:open-view', (_e, view) => {
+    const url = String(view?.url ?? '')
+    let ok = false
+    try {
+      ok = ['http:', 'https:'].includes(new URL(url).protocol)
+    } catch {}
+    if (!ok || !view?.id) throw new Error('A view needs an http(s) address.')
+    const { session, fresh } = registry.launchView({ id: String(view.id), label: String(view.label || url).slice(0, 40), url })
+    // Not awaited: the page loads in its pane while the viewer already shows
+    // it. An open view whose tabs were all closed loads again.
+    if (fresh || !browsers.pane(session.deckId)) browsers.open(session.deckId, url).catch(() => {})
+    return session.deckId
+  })
 
   ipcMain.handle('deck:launch', (_e, projectId) => {
     const project = getProject(projectId)

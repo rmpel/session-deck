@@ -73,6 +73,8 @@ const SCENARIOS = {
       'lcars-console': [set('dark')],
       'lcars-console-selected': [set('dark'), "document.querySelector('.lc-sess').click()"],
       'lcars-console-light': [set('light'), "document.querySelector('.lc-sess').click()"],
+      'lcars-console-views': [`localStorage.setItem('deck.appearance', JSON.stringify({ skin: 'lcars', theme: 'lcars', mode: 'dark', density: 'small', tileFont: 'medium', termFont: 'medium', views: [{ id: 'a', label: 'Calendar', url: 'https://calendar.google.com' }, { id: 'b', label: 'Mail', url: 'https://mail.google.com' }, { id: 'c', label: 'Gripp', url: 'https://example.gripp.com' }] })); location.reload()`],
+      'lcars-console-views-dialog': [`localStorage.setItem('deck.appearance', JSON.stringify({ skin: 'lcars', theme: 'lcars', mode: 'dark', density: 'small', tileFont: 'medium', termFont: 'medium', views: [{ id: 'a', label: 'Calendar', url: 'https://calendar.google.com' }, { id: 'b', label: 'Mail', url: 'https://mail.google.com' }] })); location.reload()`, "document.querySelector('.lc-view--add').click()"],
       'lcars-console-dialog': [set('dark'), "[...document.querySelectorAll('.lc-btn')].find(b => /Settings/.test(b.textContent)).click()"]
     }
   })(),

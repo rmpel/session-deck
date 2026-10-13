@@ -212,8 +212,9 @@
   --tone-red: color-mix(in srgb, var(--need) 72%, var(--app));
   --tone-peach: color-mix(in srgb, var(--accent) 55%, var(--ink));
   --tone-tan: var(--ink);
-  /* Condensed faces that ship with the OS, so nothing is downloaded. */
-  --f-body: 'Avenir Next Condensed', 'Bahnschrift SemiCondensed', 'Arial Narrow', sans-serif;
+  /* Antonio is the free face closest to the show's lettering, bundled with
+     the app (OFL); the OS's condensed faces stand in if it fails to load. */
+  --f-body: 'Antonio Variable', 'Avenir Next Condensed', 'Bahnschrift SemiCondensed', 'Arial Narrow', sans-serif;
 }
 .skinframe-fill--1, .lc-1 { fill: var(--tone-1); }
 .skinframe-fill--2, .lc-2 { fill: var(--tone-2); }
@@ -270,6 +271,12 @@
   text-align: right;
 }
 .lc-grow { flex: 1; }
+/* Blocks that are also buttons look like any block until hovered. */
+button.lc-block { border: 0; font-family: inherit; cursor: pointer; }
+button.lc-block:hover:not(:disabled) { filter: brightness(1.15); }
+button.lc-block:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+button.lc-block:disabled { cursor: default; }
+.lc-lines { flex-direction: column; align-items: flex-end; justify-content: flex-end; gap: 2px; }
 .lc-tall { min-height: 120px; }
 .lc-alert { background: var(--need); animation: lcars-alert 1.4s steps(1, end) infinite; }
 .lc-top .lc-col > :last-child { margin-bottom: 0; }
@@ -291,7 +298,28 @@
 .lc-rail--start span:first-child, .lc-rail--end span:first-child { margin-left: -6px; }
 
 /* ---- the readout: sessions, names and status only ---- */
-.lc-readout { flex: 1; min-width: 0; overflow-y: auto; padding-top: 6px; }
+.lc-readout { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding-top: 6px; }
+.lc-readout > .lc-sessions { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+/* The figures take only the room the list leaves, never push it. */
+.lc-grid {
+  order: 2;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: repeat(13, max-content);
+  justify-content: space-between;
+  align-content: start;
+  column-gap: 12px;
+  font-size: .95rem;
+  font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  text-align: right;
+}
+.lc-gridrow { display: contents; }
+.lc-grid .lc-hot { color: var(--ink); }
 .lc-sessions {
   list-style: none;
   margin: 0;
@@ -346,7 +374,7 @@
   text-transform: uppercase;
   white-space: nowrap;
 }
-.lc-buttons { display: grid; grid-template-columns: repeat(2, 150px); gap: 10px; }
+.lc-buttons { display: grid; grid-template-columns: repeat(3, 132px); gap: 10px; }
 .lc-btn {
   height: 44px;
   padding: 0 18px 5px;
@@ -363,7 +391,7 @@
   text-transform: uppercase;
   cursor: pointer;
 }
-.lc-buttons .lc-btn:nth-child(even) { border-radius: 999px 0 0 999px; }
+.lc-buttons .lc-btn:nth-child(3n) { border-radius: 999px 0 0 999px; }
 .lc-btn:hover { filter: brightness(1.12); }
 .lc-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
@@ -515,3 +543,40 @@
 [data-skin='lcars'] .bctl button:hover { filter: brightness(1.12); color: var(--app); }
 [data-skin='lcars'] .bctl button[aria-pressed='true'] { background: var(--tone-1); color: var(--app); }
 [data-skin='lcars'] .bslot { border-radius: 0 10px 10px 0; }
+
+/* ---- saved views: a column of slim capsules beside the commands ---- */
+.lc-views {
+  flex: none;
+  width: 120px;
+  min-height: 0;
+  max-height: 152px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.lc-view {
+  flex: none;
+  height: 30px;
+  padding: 0 14px 3px;
+  border: 0;
+  border-radius: 999px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  color: var(--app);
+  font: inherit;
+  font-size: .9rem;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.lc-view:hover { filter: brightness(1.12); }
+.lc-view:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.lc-view[aria-pressed='true'] { box-shadow: inset 0 0 0 3px var(--app); }
+.lc-view--add { background: transparent; color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }

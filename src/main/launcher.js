@@ -49,6 +49,22 @@ export function scrubClaudeSession(env) {
 }
 
 
+/**
+ * Variables naming the terminal app that started the deck. Sessions run in the
+ * deck's own terminal, so inheriting them (TERM_PROGRAM=Apple_Terminal) told
+ * programs they were in an app they were not in.
+ */
+function scrubTerminalApp(env) {
+  for (const key of ['TERM_PROGRAM', 'TERM_PROGRAM_VERSION', 'TERM_SESSION_ID', 'ITERM_SESSION_ID', 'WT_SESSION', 'COLORTERM']) {
+    delete env[key]
+  }
+  env.TERM_PROGRAM = 'session-deck'
+  // The deck's terminal (xterm.js) draws 24-bit colour; say so, rather than
+  // inherit whatever the starting terminal claimed.
+  env.COLORTERM = 'truecolor'
+  return env
+}
+
 /** The user's own shell. Inside the PTY, SHELL is borrowed for the Local trick. */
 function userShell() {
   const sh = process.env.SHELL
@@ -131,6 +147,7 @@ export function launchSession(project, { resumeId, cwd } = {}) {
   delete env.NODE_ENV
   delete env.NODE_OPTIONS
   scrubClaudeSession(env)
+  scrubTerminalApp(env)
 
   // The PTY's cwd only has to be *valid* — a missing one makes posix_spawnp
   // fail outright. Local's script and the launcher both cd where they need to.
@@ -145,4 +162,22 @@ export function launchSession(project, { resumeId, cwd } = {}) {
 
   const pty = spawn(file, args, { name: 'xterm-256color', cols: COLS, rows: ROWS, cwd: ptyCwd, env })
   return { sessionId, pty, launcherPath }
+}
+
+/**
+ * A plain terminal in the deck: the user's login shell, no Claude, started in
+ * `cwd`. It gets no SESSION_DECK_* variables, so a `claude` run inside it is
+ * just another session the hooks report on its own.
+ */
+export function launchShell(cwd) {
+  const id = randomUUID()
+  const env = { ...process.env, TERM: 'xterm-256color' }
+  delete env.ELECTRON_RUN_AS_NODE
+  delete env.NODE_ENV
+  delete env.NODE_OPTIONS
+  scrubClaudeSession(env)
+  scrubTerminalApp(env)
+  const [file, args] = IS_WIN ? [process.env.ComSpec || 'cmd.exe', []] : [userShell(), ['-l']]
+  const pty = spawn(file, args, { name: 'xterm-256color', cols: COLS, rows: ROWS, cwd, env })
+  return { id, pty }
 }

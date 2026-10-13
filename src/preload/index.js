@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 contextBridge.exposeInMainWorld('deck', {
   platform: process.platform,
   hostname: () => ipcRenderer.invoke('deck:hostname'),
+  setColorScheme: (mode) => ipcRenderer.send('deck:color-scheme', mode),
   projects: () => ipcRenderer.invoke('deck:projects'),
   sessions: () => ipcRenderer.invoke('deck:sessions'),
   ptySize: (uid) => ipcRenderer.invoke('deck:pty-size', uid),
@@ -22,6 +23,8 @@ contextBridge.exposeInMainWorld('deck', {
   summarize: (uid) => ipcRenderer.invoke('deck:summarize', uid),
   setTicket: (key, ticket) => ipcRenderer.invoke('deck:set-ticket', { key, ticket }),
   launch: (projectId) => ipcRenderer.invoke('deck:launch', projectId),
+  launchShell: (dir) => ipcRenderer.invoke('deck:launch-shell', dir),
+  openView: (view) => ipcRenderer.invoke('deck:open-view', view),
   chooseDirectory: () => ipcRenderer.invoke('deck:choose-directory'),
   launchDirectory: (dir) => ipcRenderer.invoke('deck:launch-directory', dir),
   recentDirectories: () => ipcRenderer.invoke('deck:recent-directories'),

@@ -206,6 +206,17 @@ export default function Settings({ settings, onChange, onClose, version, onCheck
             <Segmented name="Terminal text size" value={settings.termFont} options={SIZES} onChange={(v) => onChange({ termFont: v })} />
           </Row>
 
+          <Row label="Terminal font" hint="leave empty to use an installed Nerd Font, for prompt icons">
+            <input
+              className="filter appfont"
+              aria-label="Terminal font"
+              placeholder="Automatic"
+              defaultValue={settings.termFontFamily ?? ''}
+              onBlur={(e) => onChange({ termFontFamily: e.target.value.trim() })}
+              onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+            />
+          </Row>
+
           <Row label="Worked on times" hint="only the time a session was active — not testing or other work outside Claude">
             <Segmented
               name="Worked on times"

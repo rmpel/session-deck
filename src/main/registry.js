@@ -1,9 +1,9 @@
 import { EventEmitter } from 'events'
 import { existsSync, readdirSync, statSync } from 'fs'
-import { join } from 'path'
+import { join, basename } from 'path'
 import { homedir } from 'os'
 import { randomUUID } from 'crypto'
-import { launchSession, COLS, ROWS } from './launcher.js'
+import { launchSession, launchShell, COLS, ROWS } from './launcher.js'
 import { getProject, projectForDirectory } from './local.js'
 import { load, save, flush } from './store.js'
 import { firstUserMessage, scanTitles, transcriptDigest } from './transcript.js'
@@ -65,6 +65,7 @@ function createSession(fields) {
     updatedAt: now,
     replay: createReplay(), // raw PTY output for the focused view
     pty: null,
+    kind: 'claude', // or 'shell' (a plain terminal) or 'view' (a page, no terminal)
     ...fields
   }
 }
@@ -185,6 +186,68 @@ class Registry extends EventEmitter {
     this.refreshRepo(session, true)
     this.touch(session)
     return session
+  }
+
+  /**
+   * A plain terminal: the user's shell in `dir`, for the odd command without
+   * leaving the deck. Not remembered — there is no conversation to resume —
+   * and gone when the shell exits.
+   */
+  launchShell(dir) {
+    const cwd = dir && existsSync(dir) ? dir : homedir()
+    const { id, pty } = launchShell(cwd)
+    const session = createSession({
+      id,
+      deckId: id,
+      kind: 'shell',
+      name: `Terminal · ${cwd === homedir() ? '~' : basename(cwd)}`,
+      nameSource: 'user',
+      project: pick(projectForDirectory(cwd)),
+      cwd,
+      status: 'ready',
+      pty
+    })
+    pty.onData((chunk) => {
+      append(session.replay, chunk)
+      this.emit('data', session.deckId, chunk)
+    })
+    pty.onExit(() => {
+      if (this.quitting) return
+      this.sessions.delete(session.id)
+      this.emit('change', this.serialize())
+    })
+    this.sessions.set(id, session)
+    this.touch(session)
+    return session
+  }
+
+  /**
+   * A view: one of the user's saved pages (mail, calendar, hours) as a session
+   * of its own, the page filling the viewer. One per saved view — asking again
+   * returns the open one. Not remembered across restarts; logins are, by the
+   * browser panes.
+   */
+  launchView({ id, label, url }) {
+    const deckId = `view-${id}`
+    const open = this.byDeckId(deckId)
+    if (open) return { session: open, fresh: false }
+    let host = ''
+    try {
+      host = new URL(url).host
+    } catch {}
+    const session = createSession({
+      id: deckId,
+      deckId,
+      kind: 'view',
+      name: label,
+      nameSource: 'user',
+      // A key of its own, so it never shares a real project's lists.
+      project: { id: null, name: label, domain: host, path: `view:${id}` },
+      status: 'ready'
+    })
+    this.sessions.set(deckId, session)
+    this.touch(session)
+    return { session, fresh: true }
   }
 
   /** Start a session in a chosen directory (a Local site's shell if inside one). */
@@ -489,7 +552,7 @@ class Registry extends EventEmitter {
    * app an external session lives in. Emits only when something changed.
    */
   async scanProcesses() {
-    const live = [...this.sessions.values()].filter((s) => s.pty || s.claudePid || s.claudePidHint)
+    const live = [...this.sessions.values()].filter((s) => s.kind !== 'shell' && (s.pty || s.claudePid || s.claudePidHint))
     if (!live.length) return
     const table = await snapshot()
     let changed = false
@@ -879,6 +942,8 @@ class Registry extends EventEmitter {
       // under a tile; selection and terminal streams key on this instead.
       uid: s.deckId ?? s.id,
       id: s.id,
+      kind: s.kind,
+      cwd: s.cwd,
       name: s.name,
       nameSource: s.nameSource,
       project: s.project,

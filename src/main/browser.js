@@ -42,6 +42,9 @@ function partition() {
     ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false))
     ses.setPermissionCheckHandler(() => false)
     ses.on('will-download', (event) => event.preventDefault())
+    // Identify as plain Chrome. Some sign-ins (Google's) refuse browsers that
+    // announce themselves as Electron or an embedding app.
+    ses.setUserAgent(ses.getUserAgent().replace(/\s(Electron|session-deck|Session ?Deck)\/\S+/gi, ''))
   }
   return ses
 }

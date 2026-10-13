@@ -1037,3 +1037,15 @@ body {
 .bctl button[aria-pressed='true'] { color: var(--accent); border-color: var(--accent); }
 .bslots { flex: 1; min-height: 0; display: flex; gap: 6px; }
 .bslot { flex: 1; min-width: 0; background: var(--app); border-radius: 4px; }
+
+/* ---------- saved views ---------- */
+.viewsdialog { max-width: 520px; }
+.viewform { display: flex; flex-direction: column; gap: 8px; padding: 12px 15px 6px; }
+.viewform .filter { margin: 0; }
+.viewrow { display: flex; gap: 8px; align-items: center; }
+.viewrow .filter { flex: 1; min-width: 0; }
+.viewrow .newbtn:disabled { opacity: .45; cursor: default; }
+.viewform .formerror { margin: 0; font-size: .78rem; }
+.viewitem { cursor: default; }
+.fbody--view > .bpane { flex: 1; }
+.appfont { margin: 0; width: 220px; }

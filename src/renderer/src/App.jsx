@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import SessionTile from './components/SessionTile.jsx'
 import FocusedSession from './components/FocusedSession.jsx'
 import LcarsLayout from './components/LcarsLayout.jsx'
@@ -11,6 +11,7 @@ import ProcessesPanel from './components/ProcessesPanel.jsx'
 import WorkLogPanel from './components/WorkLogPanel.jsx'
 import UpdatePanel from './components/UpdatePanel.jsx'
 import Settings, { bgUrl } from './components/Settings.jsx'
+import ViewsDialog from './components/ViewsDialog.jsx'
 import { applyTheme } from './themes.js'
 import { SkinContext } from './components/SkinFrame.jsx'
 import { ipcError } from './lib/format.js'
@@ -30,11 +31,14 @@ const DEFAULTS = {
   density: 'small',
   tileFont: 'medium',
   termFont: 'medium',
+  termFontFamily: '',
   background: { path: null, dim: 'medium' },
   tileOpacity: 1,
   // Session time only — not testing, reviews or work outside Claude — so it is
   // opt-in rather than shown as if it were the time spent on a ticket.
-  worklogTimes: false
+  worklogTimes: false,
+  // Saved pages with a button of their own: [{ id, label, url }].
+  views: []
 }
 
 const prefersDark = () => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
@@ -70,6 +74,7 @@ export default function App() {
   const [update, setUpdate] = useState({ status: 'idle' })
   const [updateOpen, setUpdateOpen] = useState(false)
   const [browserState, setBrowserState] = useState({})
+  const [viewsOpen, setViewsOpen] = useState(false)
 
   useEffect(() => {
     window.deck.updateState().then(setUpdate)
@@ -98,6 +103,8 @@ export default function App() {
       localStorage.setItem('deck.appearance', JSON.stringify(settings))
     } catch {}
     applyTheme(settings.theme, resolveMode(settings.mode))
+    // 'system' stays 'system', so the panes keep following the OS with it.
+    window.deck.setColorScheme?.(settings.mode)
     const root = document.documentElement
     // Shapes only (skins.css); colours stay the theme's.
     if (settings.skin && settings.skin !== 'plain') root.dataset.skin = settings.skin
@@ -130,6 +137,7 @@ export default function App() {
       if (diffUid) return setDiffUid(null)
       if (todoUid) return setTodoUid(null)
       if (procUid) return setProcUid(null)
+      if (viewsOpen) return setViewsOpen(false)
       if (updateOpen) return setUpdateOpen(false)
       if (worklogOpen) return setWorklogOpen(false)
       if (settingsOpen) return setSettingsOpen(false)
@@ -141,7 +149,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [links, summaryUid, diffUid, todoUid, procUid, updateOpen, worklogOpen, settingsOpen, picking, settings.skin])
+  }, [links, summaryUid, diffUid, todoUid, procUid, viewsOpen, updateOpen, worklogOpen, settingsOpen, picking, settings.skin])
 
   const reopen = useCallback(async (uid) => {
     try {
@@ -165,6 +173,23 @@ export default function App() {
     setFocusedUid(uid)
   }, [])
 
+  // A plain shell, in the folder of the session on screen (or home).
+  const launchShell = useCallback(async (dir) => {
+    try {
+      setFocusedUid(await window.deck.launchShell(dir ?? null))
+    } catch (err) {
+      setLaunchError(ipcError(err))
+    }
+  }, [])
+
+  const openView = useCallback(async (view) => {
+    try {
+      setFocusedUid(await window.deck.openView(view))
+    } catch (err) {
+      setLaunchError(ipcError(err))
+    }
+  }, [])
+
   const byUid = (uid) => sessions.find((s) => s.uid === uid) ?? null
   const focused = byUid(focusedUid)
   const linksSession = links && byUid(links.uid)
@@ -176,10 +201,20 @@ export default function App() {
   const waiting = sessions.filter((s) => s.status === 'needs-you').length
   const lines = LINES[settings.density] ?? LINES.small
   const lcars = settings.skin === 'lcars'
+
+  // On the console, a session that starts needing you takes the empty viewer
+  // by itself. Never over one you are looking at, and only on the change: a
+  // deliberate Standby while something waits stays standby.
+  const firstWaiting = sessions.find((s) => s.status === 'needs-you')?.uid ?? null
+  const lastWaiting = useRef(null)
+  useEffect(() => {
+    if (lcars && !focusedUid && firstWaiting && firstWaiting !== lastWaiting.current) setFocusedUid(firstWaiting)
+    lastWaiting.current = firstWaiting
+  }, [lcars, firstWaiting])
   // Browser pages are native views drawn above the HTML, so they step aside
   // whenever anything is layered over the session.
   const obscured = Boolean(
-    picking || links || diffUid || summaryUid || todoUid || procUid || worklogOpen || updateOpen || settingsOpen
+    picking || links || diffUid || summaryUid || todoUid || procUid || viewsOpen || worklogOpen || updateOpen || settingsOpen
   )
   const browserFor = (s) => (s ? (browserState[s.uid] ?? null) : null)
   const termFont = TERM_FONT[settings.termFont] ?? TERM_FONT.medium
@@ -204,6 +239,10 @@ export default function App() {
             focused={focused}
             onSelect={setFocusedUid}
             onNew={() => setPicking(true)}
+            onShell={() => launchShell(focused?.cwd)}
+            views={settings.views ?? []}
+            onOpenView={openView}
+            onManageViews={() => setViewsOpen(true)}
             onSettings={() => setSettingsOpen(true)}
             onWorklog={() => setWorklogOpen(true)}
             onUpdate={() => {
@@ -216,6 +255,7 @@ export default function App() {
             browser={browserFor(focused)}
             obscured={obscured}
             fontSize={termFont}
+            fontFamily={settings.termFontFamily}
             theme={themeKey}
             handlers={handlers}
           />
@@ -237,6 +277,9 @@ export default function App() {
               </button>
               <button className="closeb titlebtn" type="button" onClick={() => setSettingsOpen(true)} title="Theme, skin, text sizes, ticket links and updates">
                 Settings
+              </button>
+              <button className="closeb titlebtn" type="button" onClick={() => launchShell(focused?.cwd)} title="A plain shell, without Claude">
+                Terminal
               </button>
               <button className="newbtn" type="button" onClick={() => setPicking(true)}>
                 + New session
@@ -281,6 +324,7 @@ export default function App() {
             browser={browserFor(focused)}
             obscured={obscured}
             fontSize={termFont}
+            fontFamily={settings.termFontFamily}
             theme={themeKey}
             onClose={() => setFocusedUid(null)}
             {...handlers(focused)}
@@ -291,6 +335,13 @@ export default function App() {
         {diffSession && <DiffPanel session={diffSession} onClose={() => setDiffUid(null)} />}
         {todoSession && <ChecklistPanel session={todoSession} onClose={() => setTodoUid(null)} />}
         {procSession && <ProcessesPanel session={procSession} onClose={() => setProcUid(null)} />}
+        {viewsOpen && (
+          <ViewsDialog
+            views={settings.views ?? []}
+            onChange={(views) => setSettings((prev) => ({ ...prev, views }))}
+            onClose={() => setViewsOpen(false)}
+          />
+        )}
         {worklogOpen && <WorkLogPanel showTimes={settings.worklogTimes} onClose={() => setWorklogOpen(false)} />}
         {updateOpen && <UpdatePanel state={update} running={sessions.filter((s) => s.attached).length} onClose={() => setUpdateOpen(false)} />}
         {settingsOpen && (

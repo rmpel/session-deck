@@ -22,6 +22,74 @@ const STATUS = {
 
 const pad = (n) => String(n).padStart(2, '0')
 
+const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+
+/**
+ * A stardate for show, not for navigation: TNG-style five digits that grow by
+ * a thousand a year, the fraction being how far through the day it is.
+ */
+function stardate(now) {
+  const start = new Date(now.getFullYear(), 0, 1)
+  const day = (now - start) / 86_400_000
+  const year = now.getFullYear() - 1987
+  return (year * 1000 + (day / 365.25) * 1000).toFixed(1)
+}
+
+function uptime(ms) {
+  const min = Math.floor(ms / 60_000)
+  return `${pad(Math.floor(min / 60))}:${pad(min % 60)}`
+}
+
+/** The time, ticking once a second; shared by the clock and the readouts. */
+function useNow() {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(t)
+  }, [])
+  return now
+}
+
+const randomRow = (cols) =>
+  Array.from({ length: cols }, (_, n) => {
+    const len = n === 1 ? 7 : 1 + Math.floor(Math.random() * 4)
+    return String(Math.floor(Math.random() * 10 ** len)).padStart(n % 3 ? 1 : 2, '0')
+  })
+
+/**
+ * Decorative columns of figures, as on every LCARS screen. A cell changes now
+ * and then, which is what makes the screen look alive; with reduced motion it
+ * holds still. Hidden from assistive technology: it means nothing.
+ */
+function NumberGrid({ rows = 7, cols = 13 }) {
+  const [grid, setGrid] = useState(() => Array.from({ length: rows }, () => randomRow(cols)))
+  useEffect(() => {
+    if (reducedMotion()) return
+    const t = setInterval(() => {
+      setGrid((g) => {
+        const next = g.map((r) => [...r])
+        const r = Math.floor(Math.random() * rows)
+        next[r] = randomRow(cols)
+        return next
+      })
+    }, 900)
+    return () => clearInterval(t)
+  }, [rows, cols])
+  return (
+    <div className="lc-grid" aria-hidden="true">
+      {grid.map((row, r) => (
+        <div key={r} className="lc-gridrow">
+          {row.map((v, c) => (
+            <span key={c} className={(r * 7 + c * 3) % 5 === 0 ? 'lc-hot' : undefined}>
+              {v}
+            </span>
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 /**
  * An elbow: the left column turning into a horizontal arm. `corner` is where
  * the outer curve sits — 'bottom' sweeps down-and-right, 'top' up-and-right.
@@ -63,12 +131,7 @@ function Bracket({ side }) {
   )
 }
 
-function Clock() {
-  const [now, setNow] = useState(() => new Date())
-  useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000)
-    return () => clearInterval(t)
-  }, [])
+function Clock({ now }) {
   return (
     <div className="lc-clock">
       <time dateTime={now.toISOString()}>
@@ -84,6 +147,10 @@ export default function LcarsLayout({
   focused,
   onSelect,
   onNew,
+  onShell,
+  views,
+  onOpenView,
+  onManageViews,
   onSettings,
   onWorklog,
   onUpdate,
@@ -93,6 +160,7 @@ export default function LcarsLayout({
   browser,
   obscured,
   fontSize,
+  fontFamily,
   theme,
   handlers
 }) {
@@ -101,22 +169,44 @@ export default function LcarsLayout({
     window.deck.hostname?.().then((h) => setHost(h ?? ''))
   }, [])
 
-  const count = (fn) => sessions.filter(fn).length
-  const running = count((s) => s.attached || (s.external && s.status !== 'closed'))
-  const waiting = count((s) => s.status === 'needs-you')
-  const done = count((s) => s.status === 'done')
+  const now = useNow()
+  const [startedAt] = useState(() => Date.now())
+
+  // The left column's counts are also shortcuts: each selects the first
+  // session it counts, so Waiting takes you straight to what needs you.
+  const isRunning = (s) => s.attached || (s.external && s.status !== 'closed')
+  const groups = {
+    active: sessions.filter(isRunning),
+    waiting: sessions.filter((s) => s.status === 'needs-you'),
+    done: sessions.filter((s) => s.status === 'done')
+  }
+  const waiting = groups.waiting.length
+  const jump = (list) => {
+    if (!list.length) return
+    // From the selected one, on to the next: repeated clicks walk the group.
+    const at = list.findIndex((s) => s.uid === focused?.uid)
+    onSelect(list[(at + 1) % list.length].uid)
+  }
   const updating = ['available', 'downloading', 'ready'].includes(update.status)
 
   return (
     <div className="lcars">
       <section className="lc-top">
         <div className="lc-col">
-          <div className="lc-block lc-bg-2">Session deck</div>
-          <div className="lc-block lc-bg-3 lc-grow">{update.current ? `V ${update.current}` : 'Online'}</div>
+          <div className="lc-block lc-bg-2">
+            <span className="lc-sr">Stardate </span>
+            {stardate(now)}
+          </div>
+          <div className="lc-block lc-bg-3 lc-grow lc-lines">
+            <span>Online {uptime(now - startedAt)}</span>
+            <span>{update.current ? `Deck ${update.current}` : 'Session deck'}</span>
+          </div>
         </div>
 
         <div className="lc-readout">
           <h2 className="lc-sr">Sessions</h2>
+          {/* Behind the list, filling whatever room it leaves. */}
+          <NumberGrid />
           {sessions.length === 0 ? (
             <p className="lc-none">No sessions</p>
           ) : (
@@ -132,13 +222,37 @@ export default function LcarsLayout({
                   >
                     <span className="lc-num">{pad(n + 1)}</span>
                     <span className="lc-name">{s.name ?? 'Untitled session'}</span>
-                    <span className="lc-state">{STATUS[s.status] ?? s.status}</span>
+                    <span className="lc-state">
+                      {s.kind === 'view' ? 'View' : s.kind === 'shell' ? 'Shell' : (STATUS[s.status] ?? s.status)}
+                    </span>
                   </button>
                 </li>
               ))}
             </ul>
           )}
         </div>
+
+        {/* Saved views: a column of their own, so they never make the band taller. */}
+        <nav className="lc-views" aria-label="Views">
+          {views.map((v, n) => {
+            const open = focused?.uid === `view-${v.id}`
+            return (
+              <button
+                key={v.id}
+                type="button"
+                className={`lc-view lc-bg-${['3', '2', 'peach', '1'][n % 4]}`}
+                aria-pressed={open}
+                onClick={() => onOpenView(v)}
+                title={v.url}
+              >
+                {v.label}
+              </button>
+            )
+          })}
+          <button type="button" className="lc-view lc-view--add" onClick={onManageViews}>
+            {views.length ? 'Views' : '+ View'}
+          </button>
+        </nav>
 
         <div className="lc-command">
           <h1 className="lc-title">{host || 'Session Deck'}</h1>
@@ -149,11 +263,19 @@ export default function LcarsLayout({
             <button type="button" className="lc-btn lc-bg-peach" onClick={onSettings}>
               Settings
             </button>
+            <button type="button" className="lc-btn lc-bg-3" onClick={onUpdate}>
+              {updating ? (update.status === 'ready' ? 'Restart to update' : `Update ${update.latest}`) : 'Updates'}
+            </button>
             <button type="button" className="lc-btn lc-bg-1" onClick={onNew}>
               New session
             </button>
-            <button type="button" className="lc-btn lc-bg-3" onClick={onUpdate}>
-              {updating ? (update.status === 'ready' ? 'Restart to update' : `Update ${update.latest}`) : 'Updates'}
+            <button
+              type="button"
+              className="lc-btn lc-bg-2"
+              onClick={onShell}
+              title={focused?.cwd ? `A shell in ${focused.cwd}` : 'A shell in your home folder'}
+            >
+              Terminal
             </button>
           </div>
         </div>
@@ -170,10 +292,23 @@ export default function LcarsLayout({
 
       <section className="lc-body">
         <div className="lc-col">
-          <div className="lc-block lc-bg-red">Active {pad(running)}</div>
-          <div className={`lc-block lc-bg-red lc-tall${waiting ? ' lc-alert' : ''}`}>Waiting {pad(waiting)}</div>
-          <div className="lc-block lc-bg-1">Done {pad(done)}</div>
-          <div className="lc-block lc-bg-peach lc-grow">Total {pad(sessions.length)}</div>
+          <button type="button" className="lc-block lc-bg-red" onClick={() => jump(groups.active)} disabled={!groups.active.length}>
+            Active {pad(groups.active.length)}
+          </button>
+          <button
+            type="button"
+            className={`lc-block lc-bg-red lc-tall${waiting ? ' lc-alert' : ''}`}
+            onClick={() => jump(groups.waiting)}
+            disabled={!waiting}
+          >
+            Waiting {pad(waiting)}
+          </button>
+          <button type="button" className="lc-block lc-bg-1" onClick={() => jump(groups.done)} disabled={!groups.done.length}>
+            Done {pad(groups.done.length)}
+          </button>
+          <button type="button" className="lc-block lc-bg-peach lc-grow" onClick={() => onSelect(null)} disabled={!focused}>
+            {focused ? 'Standby' : `Total ${pad(sessions.length)}`}
+          </button>
         </div>
 
         <div className="lc-main">
@@ -199,6 +334,7 @@ export default function LcarsLayout({
                   browser={browser}
                   obscured={obscured}
                   fontSize={fontSize}
+                  fontFamily={fontFamily}
                   theme={theme}
                   {...handlers(focused)}
                 />
@@ -214,7 +350,7 @@ export default function LcarsLayout({
             </div>
             <Bracket side="right" />
           </div>
-          <Clock />
+          <Clock now={now} />
         </div>
       </section>
     </div>

@@ -2,6 +2,8 @@ import React from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
 import '@xterm/xterm/css/xterm.css'
+// The LCARS skin's lettering; bundled, since the CSP allows no web fonts.
+import '@fontsource-variable/antonio'
 import './styles.css'
 import './skins.css'
 
