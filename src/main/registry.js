@@ -3,7 +3,8 @@ import { existsSync, readdirSync, statSync } from 'fs'
 import { join, basename } from 'path'
 import { homedir } from 'os'
 import { randomUUID } from 'crypto'
-import { launchSession, launchShell, COLS, ROWS } from './launcher.js'
+import { launchSession, cleanupLaunch, COLS, ROWS } from './launcher.js'
+import { launchShell } from './launcher.js'
 import { getProject, projectForDirectory } from './local.js'
 import { load, save, flush } from './store.js'
 import { firstUserMessage, scanTitles, transcriptDigest } from './transcript.js'
@@ -12,6 +13,7 @@ import { snapshot, claudeAncestor, claudeShells, appFor, focusApp, killTree } fr
 import * as worklog from './worklog.js'
 import { createReplay, append, replayText } from './replay.js'
 import { runSummary, SUMMARY_MODEL } from './summary.js'
+import { isHttpUrl } from './urls.js'
 
 const MAX_ACTIVITY = 14 // enough for the tallest tile density
 const WEEK = 7 * 24 * 60 * 60 * 1000
@@ -86,6 +88,17 @@ class Registry extends EventEmitter {
     this.store.pullRequests ??= {}
     this.store.ticketOverrides ??= {}
     this.store.summaries ??= {}
+    this.store.backgrounds ??= []
+    // Each origin gets one go at adoption; see adoptSavedBackground in index.js.
+    if (typeof this.store.backgroundsAdopted !== 'object' || !this.store.backgroundsAdopted) {
+      this.store.backgroundsAdopted = {}
+    }
+    // Links stored before only http(s) was accepted would still be listed, and
+    // do nothing when clicked.
+    for (const lists of [this.store.testPages, this.store.pullRequests]) {
+      for (const key of Object.keys(lists)) lists[key] = (lists[key] ?? []).filter((e) => isHttpUrl(e?.url))
+    }
+    if (this.store.ticketBase && !isHttpUrl(this.store.ticketBase)) this.store.ticketBase = null
     this.summarizing = new Map() // session id -> the running summary job
     this.restore()
     this.scanTimer = setInterval(() => this.scanProcesses(), SCAN_INTERVAL)
@@ -174,6 +187,7 @@ class Registry extends EventEmitter {
       this.emit('data', session.deckId, chunk)
     })
     pty.onExit(() => {
+      cleanupLaunch(sessionId)
       session.pty = null
       session.status = 'closed'
       // Quitting the app is an interruption, not an ending: keep it resumable.
@@ -379,7 +393,12 @@ class Registry extends EventEmitter {
   shutdown() {
     this.quitting = true
     clearInterval(this.scanTimer)
-    for (const s of this.sessions.values()) s.pty?.kill()
+    for (const s of this.sessions.values()) {
+      if (!s.pty) continue
+      s.pty.kill()
+      // onExit may not fire before the app is gone.
+      cleanupLaunch(s.deckId)
+    }
     flush(this.store)
   }
 
@@ -717,23 +736,56 @@ class Registry extends EventEmitter {
     save(this.store)
   }
 
+  /**
+   * Empty clears it; anything that is not a web link is refused and changes
+   * nothing. Answers `{ ok, value }` — value being what is stored now — so the
+   * caller never has to guess from the value whether it was accepted.
+   */
   setTicketBase(url) {
     const clean = String(url ?? '').trim().replace(/\/+$/, '')
+    if (clean && !isHttpUrl(clean)) return { ok: false, value: this.store.ticketBase ?? null }
     this.store.ticketBase = clean || null
     save(this.store)
     this.emit('change', this.serialize())
-    return this.store.ticketBase
+    return { ok: true, value: this.store.ticketBase }
   }
 
   ticketBase() {
     return this.store.ticketBase ?? null
   }
 
+  // ------------------------------------------------------------ backgrounds
+
+  /** Images the user chose in the file picker: the only ones outside the bundled set that may be served. */
+  pickedBackgrounds() {
+    return this.store.backgrounds
+  }
+
+  rememberBackground(path) {
+    if (!path || this.store.backgrounds.includes(path)) return
+    this.store.backgrounds = [...this.store.backgrounds, path].slice(-20)
+    save(this.store)
+  }
+
+  backgroundsAdopted(origin) {
+    return Boolean(this.store.backgroundsAdopted[origin])
+  }
+
+  /** See adoptSavedBackground in index.js. True when a path was added. */
+  adoptBackground(origin, path) {
+    if (this.store.backgroundsAdopted[origin]) return false
+    this.store.backgroundsAdopted[origin] = true
+    const before = this.store.backgrounds.length
+    if (typeof path === 'string' && path) this.rememberBackground(path)
+    save(this.store)
+    return this.store.backgrounds.length > before
+  }
+
   // ---------------------------------------------------------- pull requests
 
   addPullRequest(id, { url, title }) {
     const s = this.resolve(id)
-    if (!s || !/^https?:\/\//i.test(String(url ?? ''))) return false
+    if (!s || !isHttpUrl(url)) return false
     const key = this.projectKey(s.project)
     const entry = {
       id: randomUUID(),
@@ -873,7 +925,9 @@ class Registry extends EventEmitter {
 
   addTestPage(id, page) {
     const s = this.resolve(id)
-    if (!s) return false
+    // Checked here, not only in the MCP bridge: anything holding the token can
+    // post to /mcp/test-page directly.
+    if (!s || !isHttpUrl(page?.url)) return false
     const key = this.projectKey(s.project)
     const entry = {
       id: randomUUID(),

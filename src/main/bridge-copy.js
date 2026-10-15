@@ -1,14 +1,14 @@
 import { app } from 'electron'
-import { copyFileSync, readFileSync, existsSync, mkdirSync } from 'fs'
-import { homedir } from 'os'
+import { copyFileSync, readFileSync, existsSync } from 'fs'
 import { join } from 'path'
+import { CONFIG_DIR, ensureConfigDir } from './config-dir.js'
 
 /**
  * Global installs need paths that survive the app moving or updating, so the
  * MCP bridge and the Node hook client are registered from ~/.session-deck. The
  * app refreshes those copies on start whenever its bundled versions differ.
  */
-const SUPPORT_DIR = join(homedir(), '.session-deck')
+const SUPPORT_DIR = CONFIG_DIR
 export const BRIDGE_COPY = join(SUPPORT_DIR, 'mcp-bridge.mjs')
 export const HOOK_CLIENT_COPY = join(SUPPORT_DIR, 'hook-client.mjs')
 
@@ -21,7 +21,7 @@ export function bundledBridge() {
 }
 
 export function installBridgeCopy() {
-  mkdirSync(SUPPORT_DIR, { recursive: true })
+  ensureConfigDir()
   for (const [file, dest] of [
     ['mcp-bridge.mjs', BRIDGE_COPY],
     ['hook-client.mjs', HOOK_CLIENT_COPY]

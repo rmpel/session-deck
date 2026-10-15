@@ -13,7 +13,10 @@ export const IS_MAC = process.platform === 'darwin'
 export function isInside(base, dir, impl = path) {
   if (!base || !dir) return false
   const rel = impl.relative(base, dir)
-  return rel === '' || (!rel.startsWith('..') && !impl.isAbsolute(rel))
+  // "Outside" is the segment `..`, not a name that starts with two dots:
+  // `..env.swp` and `...notes/` are ordinary files inside.
+  const outside = rel === '..' || rel.startsWith(`..${impl.sep}`) || impl.isAbsolute(rel)
+  return rel === '' || !outside
 }
 
 export function tildify(p, home = homedir(), impl = path) {

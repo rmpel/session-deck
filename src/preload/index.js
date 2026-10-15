@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 contextBridge.exposeInMainWorld('deck', {
   platform: process.platform,
@@ -33,6 +33,9 @@ contextBridge.exposeInMainWorld('deck', {
   gitRepos: (sessionId) => ipcRenderer.invoke('deck:git-repos', sessionId),
   gitDiff: (root, path, group) => ipcRenderer.invoke('deck:git-diff', { root, path, group }),
 
+  // Where a dropped file lives on disk; '' for one that is not a file on disk
+  // (an image dragged out of a web page).
+  pathForFile: (file) => webUtils.getPathForFile(file),
   write: (sessionId, data) => ipcRenderer.send('deck:write', { sessionId, data }),
   close: (sessionId) => ipcRenderer.send('deck:close', sessionId),
   remove: (sessionId) => ipcRenderer.send('deck:remove', sessionId),

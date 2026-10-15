@@ -3,7 +3,23 @@
  * directly: is a release newer, which file is ours, and the script that swaps
  * the app bundle once we have quit.
  */
+/**
+ * Accepted risk: this GitHub repository is the whole trust anchor for updates.
+ * The download link and its sha256 come from the same API response, so the
+ * checksum catches a corrupted download, not a tampered release — and nothing
+ * is signed: the Windows installer runs without an Authenticode check, and the
+ * macOS install script clears the quarantine flag, so Gatekeeper never looks at
+ * the new version. Whoever controls this account can ship code to every
+ * install. Closing that needs a key of our own (minisign, or Developer ID and
+ * Authenticode signing).
+ */
 export const REPO = 'FrankaBeekman/session-deck'
+
+/** The asset's sha256 as GitHub publishes it, or null when it has none. */
+export function assetDigest(asset) {
+  const digest = String(asset?.digest ?? '')
+  return /^sha256:[0-9a-f]{64}$/i.test(digest) ? digest.slice(7).toLowerCase() : null
+}
 
 /** "v0.10.0" > "0.9.3". Pre-release suffixes are ignored; /releases/latest skips those anyway. */
 export function isNewer(latest, current) {

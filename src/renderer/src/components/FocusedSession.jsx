@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import StatusPill from './StatusPill.jsx'
@@ -7,6 +7,7 @@ import EditableName from './EditableName.jsx'
 import SkinFrame from './SkinFrame.jsx'
 import BrowserPanel from './BrowserPanel.jsx'
 import { alertLabel, detachedNote } from './SessionTile.jsx'
+import { typedPath } from '../lib/typed-path.js'
 
 const SIZE_KEY = 'deck.focusedSize'
 
@@ -41,6 +42,8 @@ function savedSize() {
   }
 }
 
+const hasFiles = (e) => [...(e.dataTransfer?.types ?? [])].includes('Files')
+
 /**
  * The only real terminal emulator in the app, mounted on focus and disposed on
  * close. The dialog is large by default and drag-resizable from its corner; the
@@ -61,6 +64,31 @@ export default function FocusedSession({ session, browser = null, obscured = fal
   const refitRef = useRef(null)
   const dialogRef = useRef(null)
   const initialSize = useRef(savedSize())
+  const [dropping, setDropping] = useState(false)
+
+  // Dropping files on the terminal types their paths at the cursor, as any
+  // terminal does — which is how an image gets into a Claude prompt. It goes
+  // through xterm's paste, so it arrives as one bracketed paste, not keystrokes.
+  const onDrop = (e) => {
+    if (!hasFiles(e)) return
+    e.preventDefault()
+    setDropping(false)
+    const paths = [...e.dataTransfer.files].map((f) => window.deck.pathForFile(f)).filter(Boolean)
+    const term = termRef.current
+    if (!paths.length || !term) return
+    term.paste(paths.map((p) => typedPath(p, window.deck.platform)).join(' ') + ' ')
+    term.focus()
+  }
+  const onDragOver = (e) => {
+    if (!hasFiles(e)) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+    setDropping(true)
+  }
+  // Leaving for a child fires dragleave too; only leaving the box counts.
+  const onDragLeave = (e) => {
+    if (!e.currentTarget.contains(e.relatedTarget)) setDropping(false)
+  }
 
   // Remember the size the user dragged the dialog to.
   useEffect(() => {
@@ -257,7 +285,12 @@ export default function FocusedSession({ session, browser = null, obscured = fal
             // xterm mounts in an unpadded inner box: FitAddon measures its parent's
             // border-box height, so padding there made it plan a row too many and
             // the bottom line — Claude's prompt — was clipped.
-            <div className="fterm">
+            <div
+            className={dropping ? 'fterm fterm--drop' : 'fterm'}
+            onDragOver={onDragOver}
+            onDragLeave={onDragLeave}
+            onDrop={onDrop}
+          >
               <div className="ftermhost" ref={hostRef} />
             </div>
           )}

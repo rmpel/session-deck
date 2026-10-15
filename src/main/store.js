@@ -1,6 +1,6 @@
-import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from 'fs'
-import { homedir } from 'os'
+import { readFileSync, writeFileSync, renameSync, existsSync } from 'fs'
 import { join } from 'path'
+import { CONFIG_DIR, ensureConfigDir, makePrivate } from './config-dir.js'
 
 /**
  * Durable state for the deck. Deliberately a JSON file, not SQLite: the payload
@@ -8,9 +8,12 @@ import { join } from 'path'
  * rebuild/arch failure modes that already cost us a day on node-pty.
  *
  * Writes go through a temp file + rename so a crash mid-write cannot leave a
- * truncated store behind.
+ * truncated store behind. The store — session names, prompts in the hours
+ * list, summaries — is readable by the user only: the temp file is made 0600
+ * before it is renamed into place. `mode` alone would not do it, since it is
+ * ignored when a temp file is left over from an older version.
  */
-const DIR = join(homedir(), '.session-deck')
+const DIR = CONFIG_DIR
 const FILE = join(DIR, 'store.json')
 const TMP = join(DIR, 'store.json.tmp')
 
@@ -19,6 +22,7 @@ const EMPTY = { version: 1, testPages: {}, sessions: {}, names: {}, recentDirs: 
 export function load() {
   try {
     if (!existsSync(FILE)) return structuredClone(EMPTY)
+    makePrivate(FILE)
     const parsed = JSON.parse(readFileSync(FILE, 'utf8'))
     return {
       ...structuredClone(EMPTY),
@@ -42,8 +46,9 @@ export function save(state) {
   pending = setTimeout(() => {
     pending = null
     try {
-      mkdirSync(DIR, { recursive: true })
-      writeFileSync(TMP, JSON.stringify(state, null, 2), 'utf8')
+      ensureConfigDir()
+      writeFileSync(TMP, JSON.stringify(state, null, 2), { encoding: 'utf8', mode: 0o600 })
+      makePrivate(TMP)
       renameSync(TMP, FILE)
     } catch (err) {
       console.error('[store] write failed:', err.message)
@@ -58,8 +63,9 @@ export function flush(state) {
     pending = null
   }
   try {
-    mkdirSync(DIR, { recursive: true })
-    writeFileSync(TMP, JSON.stringify(state, null, 2), 'utf8')
+    ensureConfigDir()
+    writeFileSync(TMP, JSON.stringify(state, null, 2), { encoding: 'utf8', mode: 0o600 })
+    makePrivate(TMP)
     renameSync(TMP, FILE)
   } catch (err) {
     console.error('[store] flush failed:', err.message)

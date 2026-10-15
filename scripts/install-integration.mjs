@@ -12,17 +12,19 @@
  * Dry run by default: prints what would change and changes nothing.
  * Pass --write to apply (settings.json is backed up first).
  */
-import { readFileSync, writeFileSync, existsSync, copyFileSync, mkdirSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, copyFileSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import { randomBytes } from 'crypto'
 import { execFileSync, execSync } from 'child_process'
 import { dirname } from 'path'
 import { fileURLToPath } from 'url'
+import { ensurePrivateDir, makePrivate } from '../src/main/private-dir.mjs'
 
 const SETTINGS = join(homedir(), '.claude', 'settings.json')
 const CONFIG_DIR = join(homedir(), '.session-deck')
 const TOKEN_FILE = join(CONFIG_DIR, 'token')
+const TOKEN_HEADER_FILE = join(CONFIG_DIR, 'token-header')
 const PORT = 47823
 const MARKER = 'session-deck'
 
@@ -36,12 +38,28 @@ const EVENTS = [
   'SessionEnd'
 ]
 
+/** Private to the user: the token, the hook log and the store live here. */
+const ensureConfigDir = () => ensurePrivateDir(CONFIG_DIR)
+
+/**
+ * The token, and the same token as a header line for curl's `-H @file`. The
+ * app keeps both in step too (getToken in src/main/hooks.js).
+ */
 function ensureToken() {
-  mkdirSync(CONFIG_DIR, { recursive: true })
-  if (!existsSync(TOKEN_FILE)) {
-    writeFileSync(TOKEN_FILE, randomBytes(24).toString('hex'), { mode: 0o600 })
+  ensureConfigDir()
+  let token = existsSync(TOKEN_FILE) ? readFileSync(TOKEN_FILE, 'utf8').trim() : ''
+  // An emptied file counts as missing: an empty token matches a request without one.
+  if (token.length < 32) {
+    token = randomBytes(24).toString('hex')
+    writeFileSync(TOKEN_FILE, token, { mode: 0o600 })
+    makePrivate(TOKEN_FILE)
   }
-  return readFileSync(TOKEN_FILE, 'utf8').trim()
+  const header = `X-Deck-Token: ${token}\n`
+  if (!existsSync(TOKEN_HEADER_FILE) || readFileSync(TOKEN_HEADER_FILE, 'utf8') !== header) {
+    writeFileSync(TOKEN_HEADER_FILE, header, { mode: 0o600 })
+    makePrivate(TOKEN_HEADER_FILE)
+  }
+  return token
 }
 
 // Claude Code already puts hook_event_name and session_id in the stdin JSON,
@@ -68,9 +86,12 @@ const HOOK_RUNNER = runnerFlag === 'curl' || runnerFlag === 'node' ? runnerFlag 
 // terminal after Claude switches session id (resume fallback, /clear, /resume).
 // $PPID is the process that ran the hook — claude or a shell under it; the deck
 // walks up from there to find the claude process and its app.
+// The token header is read by curl from a file (`-H @file`). Expanding it in
+// the shell would put the token in curl's arguments, where every local user can
+// read it with `ps` while a hook runs.
 const curlCommand =
   `curl -sS -m 2 -X POST -H 'Content-Type: application/json' ` +
-  `-H "X-Deck-Token: $(cat ~/.session-deck/token 2>/dev/null)" ` +
+  `-H "@$HOME/.session-deck/token-header" ` +
   `-H "X-Deck-Session: \${SESSION_DECK_ID:-}" ` +
   `-H "X-Claude-Pid: $PPID" ` +
   `--data-binary @- http://127.0.0.1:${PORT}/hook >/dev/null 2>&1 || true`
@@ -139,7 +160,7 @@ function main() {
 
   if (!hooksCurrent) {
     if (HOOK_RUNNER === 'node') {
-      mkdirSync(CONFIG_DIR, { recursive: true })
+      ensureConfigDir()
       copyFileSync(HOOK_CLIENT_SOURCE, HOOK_CLIENT_COPY)
     }
     if (existsSync(SETTINGS)) {
@@ -184,7 +205,7 @@ function planMcp() {
 function applyMcp({ node, exists, change }) {
   // A stable path, refreshed by the app on start, so the registration survives
   // the app moving or updating.
-  mkdirSync(CONFIG_DIR, { recursive: true })
+  ensureConfigDir()
   copyFileSync(BRIDGE_SOURCE, BRIDGE_COPY)
   if (change === 'refresh') {
     console.log(`Refreshed ${BRIDGE_COPY}`)

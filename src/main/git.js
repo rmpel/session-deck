@@ -1,6 +1,7 @@
 import { execFile } from 'child_process'
 import { existsSync, statSync } from 'fs'
 import { basename, dirname, join, resolve } from 'path'
+import { isInside } from './platform.js'
 
 const MAX_DIFF_BYTES = 400_000
 
@@ -167,6 +168,11 @@ export async function reposForSession(cwd, touchedPaths = []) {
 
 export async function fileDiff(root, path, { group = 'unstaged' } = {}) {
   if (!root) return { text: '', truncated: false, error: 'No repository' }
+  // `path` comes from the renderer. An untracked file is read with --no-index,
+  // which would show any readable file on disk, so it has to stay in the repo.
+  if (!path || !isInside(root, resolve(root, String(path)))) {
+    return { text: '', truncated: false, error: 'Not a file in this repository' }
+  }
   const args =
     group === 'untracked'
       ? ['diff', '--no-index', '--no-color', '--', '/dev/null', path]

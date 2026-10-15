@@ -1,15 +1,20 @@
 import { createServer } from 'http'
 import { appendFileSync, statSync, renameSync } from 'fs'
-import { randomBytes } from 'crypto'
-import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs'
-import { homedir } from 'os'
+import { randomBytes, timingSafeEqual } from 'crypto'
+import { writeFileSync, readFileSync, existsSync } from 'fs'
 import { join, basename } from 'path'
 import { registry } from './registry.js'
+import { CONFIG_DIR, ensureConfigDir, makePrivate } from './config-dir.js'
+import { redact } from './redact.js'
+import { isHttpUrl } from './urls.js'
 import { browsers } from './browser.js'
 
 export const PORT = 47823
-const CONFIG_DIR = join(homedir(), '.session-deck')
 const TOKEN_FILE = join(CONFIG_DIR, 'token')
+// The same token as a ready-made header line, for curl's `-H @file`: the hook
+// reads it from here so the token never appears in a process's arguments.
+const TOKEN_HEADER_FILE = join(CONFIG_DIR, 'token-header')
+const MIN_TOKEN = 32
 const LOG_FILE = join(CONFIG_DIR, 'hooks.jsonl')
 export const HOOK_LOG = LOG_FILE
 const LOG_LIMIT = 20 * 1024 * 1024
@@ -18,20 +23,34 @@ const LOG_LIMIT = 20 * 1024 * 1024
  * The raw log is for diagnosis, so it keeps what explains behaviour and drops
  * bulk: Write/Edit payloads carry whole files, and grew the log past 11MB in a
  * week. Rotates once at 20MB, keeping one previous file.
+ *
+ * What is kept, and for how long: every hook payload, with prompts cut to 1000
+ * characters and Bash commands in full, both with obvious secrets masked
+ * (redact.js). There is no time limit — the log lives until it rotates out, so
+ * at most about 40MB: this file plus one previous one. Both are readable by the
+ * user only (0600, in a 0700 directory) and never leave the machine.
  */
 function slim(payload) {
   const out = { ...payload }
   if (out.tool_input) {
     const { command, file_path, path, pattern, url, description, run_in_background } = out.tool_input
-    out.tool_input = { command, file_path, path, pattern, url, description, run_in_background }
+    out.tool_input = {
+      command: redact(command),
+      file_path,
+      path,
+      pattern,
+      url: redact(url),
+      description: redact(description),
+      run_in_background
+    }
   }
   if (out.tool_response && typeof out.tool_response === 'object') {
     const { backgroundTaskId, interrupted } = out.tool_response
     out.tool_response = { backgroundTaskId, interrupted }
   } else if (out.tool_response) {
-    out.tool_response = String(out.tool_response).slice(0, 200)
+    out.tool_response = redact(String(out.tool_response).slice(0, 200))
   }
-  if (typeof out.prompt === 'string') out.prompt = out.prompt.slice(0, 1000)
+  if (typeof out.prompt === 'string') out.prompt = redact(out.prompt.slice(0, 1000))
   return out
 }
 
@@ -40,16 +59,41 @@ function appendLog(entry) {
     if (statSync(LOG_FILE).size > LOG_LIMIT) renameSync(LOG_FILE, `${LOG_FILE}.1`)
   } catch {}
   try {
-    appendFileSync(LOG_FILE, JSON.stringify(entry) + '\n')
+    appendFileSync(LOG_FILE, JSON.stringify(entry) + '\n', { mode: 0o600 })
   } catch {}
 }
 
 export function getToken() {
-  mkdirSync(CONFIG_DIR, { recursive: true })
-  if (!existsSync(TOKEN_FILE)) {
-    writeFileSync(TOKEN_FILE, randomBytes(24).toString('hex'), { mode: 0o600 })
+  ensureConfigDir()
+  let token = existsSync(TOKEN_FILE) ? readFileSync(TOKEN_FILE, 'utf8').trim() : ''
+  // A missing token and an emptied or truncated file are the same thing: an
+  // empty token would be matched by a request that sends none.
+  if (token.length < MIN_TOKEN) {
+    token = randomBytes(24).toString('hex')
+    writeFileSync(TOKEN_FILE, token, { mode: 0o600 })
+    makePrivate(TOKEN_FILE)
   }
-  return readFileSync(TOKEN_FILE, 'utf8').trim()
+  const header = `X-Deck-Token: ${token}\n`
+  let current = null
+  try {
+    current = readFileSync(TOKEN_HEADER_FILE, 'utf8')
+  } catch {}
+  if (current !== header) {
+    writeFileSync(TOKEN_HEADER_FILE, header, { mode: 0o600 })
+    makePrivate(TOKEN_HEADER_FILE)
+  }
+  return token
+}
+
+/**
+ * Constant-time, so a wrong token says nothing about how much of it matched.
+ * No token on either side is never a match.
+ */
+function tokenMatches(given, token) {
+  if (typeof given !== 'string' || !given || !token) return false
+  const a = Buffer.from(given)
+  const b = Buffer.from(token)
+  return a.length === b.length && timingSafeEqual(a, b)
 }
 
 /** Turn a raw hook payload into the one line a tile should show. */
@@ -175,12 +219,14 @@ function apply(payload, deckId, claudePid) {
 
 export function startHookServer(onPortBusy) {
   const token = getToken()
+  // Files an older version wrote with default permissions.
+  for (const file of [TOKEN_FILE, LOG_FILE, `${LOG_FILE}.1`]) makePrivate(file)
 
   const ROUTES = new Set(['/hook', '/mcp/name', '/mcp/test-page', '/mcp/pull-request', '/mcp/todo', '/mcp/browser'])
 
   const server = createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/sessions') {
-      if (req.headers['x-deck-token'] !== token) {
+      if (!tokenMatches(req.headers['x-deck-token'], token)) {
         res.writeHead(403).end()
         return
       }
@@ -193,7 +239,7 @@ export function startHookServer(onPortBusy) {
       res.writeHead(404).end()
       return
     }
-    if (req.headers['x-deck-token'] !== token) {
+    if (!tokenMatches(req.headers['x-deck-token'], token)) {
       res.writeHead(403).end()
       return
     }
@@ -224,6 +270,13 @@ export function startHookServer(onPortBusy) {
       if (req.url !== '/hook') {
         try {
           const { sessionId, claudePid, name, url, title, text } = JSON.parse(body)
+          // Its own answer, so a refused link is not reported as "not tracking
+          // this session" (404).
+          const wantsUrl = req.url === '/mcp/test-page' || req.url === '/mcp/pull-request'
+          if (wantsUrl && !isHttpUrl(url)) {
+            res.writeHead(400).end()
+            return
+          }
           // A deck-launched bridge knows its deck id; a globally installed one
           // only knows its parent: the Claude process the hooks already mapped.
           const target = await registry.resolveMcp(sessionId, claudePid)

@@ -7,10 +7,11 @@ import { hostname } from 'os'
 import { registry } from './registry.js'
 import { startHookServer, HOOK_LOG } from './hooks.js'
 import { installBridgeCopy } from './bridge-copy.js'
-import { IS_MAC, IS_WIN } from './platform.js'
-import { listBackgrounds, chooseBackground, registerScheme, serveBackgrounds, urlFor } from './backgrounds.js'
+import { IS_MAC, IS_WIN, isInside } from './platform.js'
+import { listBackgrounds, chooseBackground, registerScheme, serveBackgrounds, urlFor, bundledDir } from './backgrounds.js'
 import { reposForSession, fileDiff } from './git.js'
 import { updater } from './updater.js'
+import { isHttpUrl } from './urls.js'
 import { browsers } from './browser.js'
 
 // Must run before `ready`, or the menu bar and About panel say "Electron".
@@ -23,6 +24,8 @@ registerScheme()
 
 let win = null
 const notified = new Set()
+// Repositories the renderer has been shown: the only ones it may ask a diff for.
+const shownRepos = new Set()
 
 /** A window can be destroyed between an event firing and this running. */
 function send(channel, payload) {
@@ -79,6 +82,8 @@ function applyMenu() {
       label: 'View',
       submenu: [
         { role: 'reload' },
+        // Left in packaged builds on purpose: this is a developer tool, and the
+        // console is how a problem on someone else's machine gets diagnosed.
         { role: 'toggleDevTools' },
         { type: 'separator' },
         { role: 'togglefullscreen' }
@@ -102,12 +107,23 @@ function createWindow() {
     // with the menu bar tucked away until Alt is pressed.
     ...(IS_MAC ? { titleBarStyle: 'hiddenInset' } : { autoHideMenuBar: true }),
     webPreferences: {
+      // The preload is one bundled file that only uses contextBridge and
+      // ipcRenderer, which is all a sandboxed preload may do.
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
     }
   })
+
+  // The deck is one page. Nothing in it opens a window or goes anywhere else —
+  // links leave through deck:open-external — so both are refused outright. A
+  // reload of the page itself stays allowed: Vite does that in development.
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  win.webContents.on('will-navigate', (e, url) => {
+    if (url !== win?.webContents.getURL()) e.preventDefault()
+  })
+  win.webContents.once('did-finish-load', adoptSavedBackground)
 
   win.once('ready-to-show', () => win.show())
   browsers.attach(win)
@@ -124,6 +140,33 @@ function createWindow() {
   } else {
     win.loadFile(join(__dirname, '../renderer/index.html'))
   }
+}
+
+/**
+ * One-off, for installs from before picked backgrounds were recorded in the
+ * store: the chosen image lived only in the renderer's saved settings, and
+ * would stop loading now that deckbg:// serves known images only. Main asks for
+ * it once and never again, so this is not a way to add paths later.
+ *
+ * "Once" is per origin: `npm run dev` and the packaged app keep separate
+ * settings, and a dev run must not use up the packaged app's turn. A read that
+ * fails uses up nothing either; it is tried again on the next start.
+ */
+async function adoptSavedBackground() {
+  const origin = app.isPackaged ? 'packaged' : 'dev'
+  if (registry.backgroundsAdopted(origin)) return
+  let path = null
+  try {
+    path = await win.webContents.executeJavaScript(
+      `(() => { try { return JSON.parse(localStorage.getItem('deck.appearance') ?? '{}').background?.path ?? null } catch { return null } })()`
+    )
+  } catch {
+    return
+  }
+  // Bundled images are served anyway; only a picked one needs recording.
+  const picked = typeof path === 'string' && path && !isInside(bundledDir(), path) ? path : null
+  // The page asked for the image before it was known; load it again.
+  if (registry.adoptBackground(origin, picked) && win && !win.isDestroyed()) win.webContents.reload()
 }
 
 /**
@@ -145,7 +188,7 @@ function notifyBlocked(sessions) {
 }
 
 app.whenReady().then(() => {
-  serveBackgrounds()
+  serveBackgrounds(() => registry.pickedBackgrounds())
   // Keep the globally installed MCP bridge (if any) in step with this app version.
   installBridgeCopy()
   // One-off: build the hours list from hook history that predates it.
@@ -211,6 +254,7 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('deck:choose-background', async () => {
     const picked = await chooseBackground(win)
+    if (picked) registry.rememberBackground(picked.path)
     return picked ? { ...picked, url: urlFor(picked.path) } : null
   })
   ipcMain.handle('deck:ticket-base', () => registry.ticketBase())
@@ -275,10 +319,14 @@ app.whenReady().then(() => {
   ipcMain.handle('deck:git-repos', async (_e, sessionId) => {
     const s = registry.resolve(sessionId)
     if (!s) return []
-    return reposForSession(s.cwd ?? s.project.path, s.touched ?? [])
+    const repos = await reposForSession(s.cwd ?? s.project.path, s.touched ?? [])
+    for (const repo of repos) shownRepos.add(repo.root)
+    return repos
   })
 
-  ipcMain.handle('deck:git-diff', (_e, { root, path, group }) => fileDiff(root, path, { group }))
+  ipcMain.handle('deck:git-diff', (_e, { root, path, group }) =>
+    shownRepos.has(root) ? fileDiff(root, path, { group }) : { text: '', truncated: false, error: 'Unknown repository' }
+  )
 
   ipcMain.handle('deck:buffer', (_e, sessionId) => registry.replayFor(sessionId))
   ipcMain.on('deck:write', (_e, { sessionId, data }) => registry.write(sessionId, data))
@@ -288,7 +336,11 @@ app.whenReady().then(() => {
     registry.forgetTestPage(projectKey, pageId)
   )
   ipcMain.on('deck:forget-pull-request', (_e, { projectKey, prId }) => registry.forgetPullRequest(projectKey, prId))
-  ipcMain.on('deck:open-external', (_e, url) => shell.openExternal(url))
+  // The last check before the OS gets a URL, whatever stored it and whenever.
+  ipcMain.on('deck:open-external', (_e, url) => {
+    if (isHttpUrl(url)) shell.openExternal(url)
+    else console.error('[open-external] refused a non-http(s) URL')
+  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

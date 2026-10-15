@@ -318,6 +318,8 @@ body {
 
 .fterm { flex: 1; min-height: 0; background: var(--term); padding: 10px 12px; overflow: hidden; }
 .ftermhost { height: 100%; }
+/* A file is being dragged over the terminal: dropping types its path. */
+.fterm--drop { box-shadow: inset 0 0 0 2px var(--accent); }
 .fterm .xterm { height: 100%; }
 .fhead, .ffoot, .alertbar--top { flex: none; }
 .ffoot { padding: 10px 15px; display: flex; gap: 10px; align-items: center; }

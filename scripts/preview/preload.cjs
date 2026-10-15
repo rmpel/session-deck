@@ -38,7 +38,8 @@ contextBridge.exposeInMainWorld('deck', {
   },
   chooseBackground: async () => null,
   ticketBase: async () => 'https://example.atlassian.net/browse',
-  setTicketBase: async (v) => v,
+  setTicketBase: async (v) => ({ ok: true, value: v }),
+  pathForFile: () => '',
   worklogDays: async () => ['2026-09-15', '2026-09-14'],
   worklog: async (day) => ({ day, totalMinutes: 297, rows: [
     { key: 'a', project: 'example-corporate', name: 'Quotation template redesign', ticket: 'EXC-207', minutes: 102, first: Date.now() - 6.2 * 3600e3, last: Date.now() - 4.1 * 3600e3, blocks: 6 },

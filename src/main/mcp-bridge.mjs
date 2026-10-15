@@ -284,6 +284,7 @@ function explain({ status }) {
   if (status === 0) return 'Session Deck is not running, so nothing was recorded.'
   if (status === 404) return 'Session Deck is running but is not tracking this session.'
   if (status === 403) return 'Session Deck rejected the token for this session.'
+  if (status === 400) return 'Session Deck refused the request: only http(s) links are recorded.'
   return `Session Deck returned HTTP ${status}.`
 }
 

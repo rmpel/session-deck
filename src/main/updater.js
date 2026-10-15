@@ -4,7 +4,7 @@ import { spawn } from 'child_process'
 import { createHash } from 'crypto'
 import { createWriteStream, mkdirSync, writeFileSync, chmodSync, accessSync, openSync, constants, rmSync } from 'fs'
 import { dirname, join } from 'path'
-import { REPO, isNewer, pickAsset, bundlePath, isTranslocated, macInstallScript } from './update-core.js'
+import { REPO, isNewer, pickAsset, assetDigest, bundlePath, isTranslocated, macInstallScript } from './update-core.js'
 import { IS_MAC, IS_WIN } from './platform.js'
 
 const CHECK_EVERY = 6 * 60 * 60 * 1000
@@ -83,7 +83,11 @@ class Updater extends EventEmitter {
         pageUrl: release.html_url,
         size: asset?.size ?? null,
         // No asset for this machine still gets the release page link.
-        blocker: asset ? this.installBlocker() : 'This release has no download for this machine.',
+        blocker: !asset
+          ? 'This release has no download for this machine.'
+          : !assetDigest(asset)
+            ? 'This release has no checksum, so the download cannot be verified.'
+            : this.installBlocker(),
         checkedAt: Date.now()
       })
     } catch (err) {
@@ -97,6 +101,10 @@ class Updater extends EventEmitter {
     if (!asset || this.state.status !== 'available' || this.state.blocker) return this.state
     this.set({ status: 'downloading', progress: 0, error: null })
     try {
+      // Never install what could not be checked. check() already blocks this;
+      // it is repeated here because this is the step that matters.
+      const expected = assetDigest(asset)
+      if (!expected) throw new Error('This release has no checksum, so the download cannot be verified.')
       mkdirSync(updateDir(), { recursive: true })
       const file = join(updateDir(), asset.name)
       const res = await fetch(asset.browser_download_url, { headers: { 'User-Agent': 'session-deck' } })
@@ -119,9 +127,7 @@ class Updater extends EventEmitter {
       await new Promise((resolve, reject) => out.end((err) => (err ? reject(err) : resolve())))
 
       if (asset.size && received !== asset.size) throw new Error('The download is incomplete.')
-      // GitHub publishes a sha256 per asset; older assets may lack it.
-      const expected = String(asset.digest ?? '').replace(/^sha256:/, '')
-      if (expected && hash.digest('hex') !== expected) {
+      if (hash.digest('hex') !== expected) {
         rmSync(file, { force: true })
         throw new Error('The download does not match the release checksum.')
       }

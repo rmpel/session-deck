@@ -20,7 +20,7 @@ announce itself.
 ## Setup
 
 ```sh
-npm install                               # postinstall fixes node-pty's spawn-helper
+npm install                               # postinstall fixes node-pty's spawn-helper and downloads Electron
 npm run install-integration               # dry run — shows what it would change
 npm run install-integration -- --write    # apply
 npm run dev
@@ -92,7 +92,9 @@ Electron's own updater (Squirrel) only accepts apps signed with an Apple
 Developer ID, so the deck does it itself (`src/main/updater.js`):
 
 1. It downloads the dmg for its architecture (or the Windows installer) and
-   checks its size and the sha256 GitHub publishes for every asset.
+   checks its size and the sha256 GitHub publishes for every asset. A release
+   whose asset has no checksum is not installed; the dialog links the release
+   page instead.
 2. *Restart and update* quits the app — deck sessions end and come back as
    resumable — and hands over to a script that outlives it
    (`update-core.js`): wait for the pid, mount the dmg, move the old bundle
@@ -393,6 +395,15 @@ Claude, which the deck reads incrementally from the transcript's `custom-title`
 entries; between those two the latest wins. Deck renames are stored in
 `store.json`. They do not rename the session inside Claude.
 
+## Dropping files on the terminal
+
+Drag an image — or any file — from Finder onto a focused session's terminal and
+its path is typed at the cursor, escaped the way a terminal would, several
+files separated by spaces. Claude Code turns an image path into an attachment.
+The path goes in as a paste, so nothing is submitted until you press Enter.
+Only files on disk work: an image dragged straight out of a web page has no
+path and is ignored.
+
 ## Settings
 
 One panel, from the title bar or *Session Deck → Settings…* (⌘,): **theme**,
@@ -464,7 +475,9 @@ Eight backgrounds ship with the app, in `resources/backgrounds` — stored as JP
 
 Images reach the renderer over a dedicated `deckbg://` scheme rather than
 `file://`: the renderer runs from `http://` in dev and `file://` when packaged,
-and its CSP allows neither. The handler serves only existing image files.
+and its CSP allows neither. The handler serves only the bundled images and the
+ones chosen through **Choose…** (recorded in `store.json`) — not any image on
+disk.
 
 Two controls keep them from making the deck unreadable:
 
@@ -509,6 +522,43 @@ then runs one `claude -p` on Haiku with:
 `--bare` would skip hooks too, but only accepts an API key, not a subscription
 login.
 
+## Security
+
+The deck is a local developer tool: it starts shells, reads repositories and
+listens on localhost. What keeps that contained:
+
+- **The hook server** listens on `127.0.0.1` only and wants the token from
+  `~/.session-deck/token` on every route. The macOS hook has curl read the
+  header from `~/.session-deck/token-header` (`-H @file`), so the token is never
+  in a process's arguments, where `ps` would show it to other local users.
+- **`~/.session-deck` is private** (`0700`, files `0600`). `hooks.jsonl` keeps
+  every hook payload — prompts cut to 1000 characters, Bash commands and URLs
+  in full, obvious secrets masked (`redact.js`, a safety net rather than a
+  guarantee) — until it rotates out at 20MB, with one
+  previous file kept. Nothing in it leaves the machine.
+- **Only `http(s)` links are opened.** Test pages, pull requests, the ticket
+  base and the release page all end in `shell.openExternal`; anything else is
+  refused when it is stored and again when it is clicked.
+- **The window** is sandboxed, cannot navigate and cannot open windows. It may
+  only ask for diffs inside repositories it was shown, and only load the
+  backgrounds described above.
+- **Per-session launcher files** (in `$TMPDIR/session-deck-launchers`, one of
+  them holding the token) are private and removed when the session ends. A
+  folder that turns out to belong to another user is not used: the launch
+  fails instead (`private-dir.mjs`).
+
+Accepted, and noted where the code does it:
+
+- The token is in the environment of everything a session runs
+  (`launcher.js`) — that is how the hooks and the MCP server reach the deck.
+- Updates trust the GitHub repository and nothing else: no signature of our
+  own, no Authenticode or Gatekeeper check (`update-core.js`).
+- DevTools stay available in the packaged app (`index.js`).
+
+After updating from 0.4.0 or earlier, re-run
+`npm run install-integration -- --write` once to move the macOS hook to the
+token header file. The old hook keeps working until then.
+
 ## Diagnostics
 
 ```sh
@@ -532,6 +582,9 @@ than scrolling, and only a screenshot showed it.
 src/main/       local.js      read Local's sites.json (read-only)
                 launcher.js   the SHELL-override spawn
                 hooks.js      localhost hook receiver (127.0.0.1:47823, token-gated)
+                config-dir.js ~/.session-deck, private to the user
+                redact.js     masks secrets before they reach the hook log
+                urls.js       the http(s)-only rule for links
                 registry.js   session state, hook → status mapping
                 index.js      window, IPC, notifications
 src/preload/    contextBridge surface — no node in the renderer
@@ -571,8 +624,11 @@ it needs to. Fixing it means reinstalling Node for arm64, which affects every
 other project on the machine — so it is worth deciding deliberately rather than
 discovering later.
 
-**If `npm run dev` says `Error: Electron uninstall`,** Electron's binary
-download was skipped (this happens on in-place version upgrades). Recover with:
+**If `npm run dev` says `Error: Electron uninstall`,** Electron's binary has
+not been downloaded. Electron no longer does that in an install script of its
+own, and electron-vite does not trigger the download, so this project's
+`postinstall` runs it. If that was skipped (`npm install --ignore-scripts`),
+recover with:
 
 ```sh
 node node_modules/electron/install.js

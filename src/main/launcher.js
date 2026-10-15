@@ -1,6 +1,6 @@
 import { spawn } from 'node-pty'
 import { randomUUID } from 'crypto'
-import { writeFileSync, chmodSync, mkdirSync, existsSync, readFileSync } from 'fs'
+import { writeFileSync, chmodSync, existsSync, readFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir, homedir } from 'os'
 import { bundledBridge } from './bridge-copy.js'
@@ -8,6 +8,7 @@ import { resolveClaudeBin, resolveNodeBin } from './claude-bin.js'
 import { getToken, PORT } from './hooks.js'
 import { launcherScript, windowsLauncherScript, shq } from './launch-script.js'
 import { IS_WIN } from './platform.js'
+import { ensurePrivateDir } from './private-dir.mjs'
 
 // Pinned for the session's whole life. Never resized on focus change — that is
 // what keeps Claude Code's TUI from re-flowing every time a tile is opened.
@@ -15,6 +16,20 @@ export const COLS = 120
 export const ROWS = 32
 
 const LAUNCHER_DIR = join(tmpdir(), 'session-deck-launchers')
+const launcherFile = (sessionId) => join(LAUNCHER_DIR, `launch-${sessionId}.${IS_WIN ? 'cmd' : 'sh'}`)
+const mcpConfigFile = (sessionId) => join(LAUNCHER_DIR, `mcp-${sessionId}.json`)
+
+/**
+ * A session's launcher and MCP config are only needed while its PTY runs, and
+ * the config holds the token — so they go when the PTY does.
+ */
+export function cleanupLaunch(sessionId) {
+  for (const file of [launcherFile(sessionId), mcpConfigFile(sessionId)]) {
+    try {
+      rmSync(file, { force: true })
+    } catch {}
+  }
+}
 
 /**
  * When the tools are installed globally (`npm run install-integration`), every
@@ -88,16 +103,18 @@ export function launchSession(project, { resumeId, cwd } = {}) {
   // --resume reuses the original session id (forking is opt-in via
   // --fork-session), so a resumed session's hooks keep matching its tile.
   const sessionId = resumeId ?? randomUUID()
-  mkdirSync(LAUNCHER_DIR, { recursive: true })
+  // Private to the user, like the files in it: the MCP config holds the token.
+  // Throws — and the launch fails — when the directory is someone else's.
+  ensurePrivateDir(LAUNCHER_DIR)
 
-  const launcherPath = join(LAUNCHER_DIR, `launch-${sessionId}.${IS_WIN ? 'cmd' : 'sh'}`)
+  const launcherPath = launcherFile(sessionId)
   const claudeBin = resolveClaudeBin()
   const workdir = cwd && existsSync(cwd) ? cwd : null
   const viaLocal = Boolean(project.entryScript && existsSync(project.entryScript))
 
   // Per-session MCP config, passed with --mcp-config. Nothing global is touched,
   // and the server only exists for sessions the deck launched.
-  const mcpConfigPath = join(LAUNCHER_DIR, `mcp-${sessionId}.json`)
+  const mcpConfigPath = mcpConfigFile(sessionId)
   writeFileSync(
     mcpConfigPath,
     JSON.stringify(
@@ -117,8 +134,10 @@ export function launchSession(project, { resumeId, cwd } = {}) {
       null,
       2
     ),
-    'utf8'
+    { encoding: 'utf8', mode: 0o600 }
   )
+  // `mode` is ignored when the file already exists (a resumed session).
+  chmodSync(mcpConfigPath, 0o600)
 
   const mcpFlag = globalBridgeInstalled() ? null : mcpConfigPath
   const script = IS_WIN
@@ -132,8 +151,12 @@ export function launchSession(project, { resumeId, cwd } = {}) {
       })
     : launcherScript({ claudeBin, sessionId, resumeId, mcpConfigPath: mcpFlag, workdir, shell: userShell() })
   writeFileSync(launcherPath, script, 'utf8')
-  chmodSync(launcherPath, 0o755)
+  chmodSync(launcherPath, 0o700)
 
+  // Accepted risk: the token is in the environment of everything the session
+  // runs, so any command Claude starts can read it. That is by design — it is
+  // how the MCP bridge and the hooks authenticate to the deck — and the token
+  // only opens the localhost hook server: session status, names, links, todos.
   const env = {
     ...process.env,
     ...(IS_WIN ? {} : { SHELL: viaLocal ? launcherPath : userShell() }),

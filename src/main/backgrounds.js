@@ -1,7 +1,8 @@
 import { app, dialog, nativeImage, protocol, net } from 'electron'
 import { existsSync, readdirSync, statSync } from 'fs'
-import { join, extname, basename } from 'path'
+import { join, extname, basename, resolve } from 'path'
 import { pathToFileURL } from 'url'
+import { isInside } from './platform.js'
 
 const EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif', '.bmp'])
 
@@ -35,11 +36,16 @@ export function registerScheme() {
   ])
 }
 
-export function serveBackgrounds() {
+/**
+ * This scheme can reach the disk, so it serves only images the deck knows: the
+ * ones that ship with the app, and the ones the user chose in the file picker
+ * (`pickedPaths` returns those). Any other path is a 404, image or not.
+ */
+export function serveBackgrounds(pickedPaths) {
   protocol.handle(SCHEME, (request) => {
-    const path = decodeURIComponent(new URL(request.url).pathname.replace(/^\//, ''))
-    // Only ever an image file that exists: this scheme can reach the disk.
-    if (!EXTS.has(extname(path).toLowerCase()) || !existsSync(path) || !statSync(path).isFile()) {
+    const path = resolve(decodeURIComponent(new URL(request.url).pathname.replace(/^\//, '')))
+    const known = isInside(bundledDir(), path) || pickedPaths().includes(path)
+    if (!known || !EXTS.has(extname(path).toLowerCase()) || !existsSync(path) || !statSync(path).isFile()) {
       return new Response('Not found', { status: 404 })
     }
     return net.fetch(pathToFileURL(path).toString())
@@ -81,7 +87,7 @@ export async function chooseBackground(win) {
     properties: ['openFile'],
     filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif', 'bmp'] }]
   })
-  const path = canceled ? null : (filePaths[0] ?? null)
+  const path = canceled ? null : (filePaths[0] ? resolve(filePaths[0]) : null)
   if (!path) return null
   return { path, label: basename(path), file: basename(path), thumb: thumb(path) }
 }

@@ -82,8 +82,10 @@ export default function Settings({ settings, onChange, onClose, version, onCheck
 
   const saveTicketBase = async (e) => {
     e.preventDefault()
-    await window.deck.setTicketBase(ticketBase)
-    setSaved(true)
+    // Main refuses anything that is not an http(s) link, and says so.
+    const { ok, value } = await window.deck.setTicketBase(ticketBase)
+    if (ok) setTicketBase(value ?? '')
+    setSaved(ok ? 'saved' : 'refused')
     setTimeout(() => setSaved(false), 1600)
   }
 
@@ -241,7 +243,7 @@ export default function Settings({ settings, onChange, onClose, version, onCheck
                 onChange={(e) => setTicketBase(e.target.value)}
               />
               <button className="newbtn" type="submit">
-                {saved ? 'Saved' : 'Save'}
+                {saved === 'saved' ? 'Saved' : saved === 'refused' ? 'Needs http(s)' : 'Save'}
               </button>
             </div>
           </form>

@@ -3,6 +3,7 @@ import { join, basename } from 'path'
 import { isInside, localDataDir, entryScriptName, tildify as tildifyPath, IS_MAC } from './platform.js'
 import { siteShellScript } from './launch-script.js'
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, chmodSync, existsSync } from 'fs'
+import { CONFIG_DIR, ensureConfigDir } from './config-dir.js'
 
 /** Local stores some site paths with a literal, unexpanded `~`. */
 function expandTilde(p) {
@@ -16,7 +17,7 @@ const SSH_ENTRY = join(LOCAL_DIR, 'ssh-entry')
 const SERVICES_DIR = join(LOCAL_DIR, 'lightning-services')
 const LOCAL_TOOLS = '/Applications/Local.app/Contents/Resources/extraResources/bin'
 // Our own stand-ins live outside Local's folder: Local's data is read-only to us.
-const SITE_SHELLS = join(homedir(), '.session-deck', 'site-shells')
+const SITE_SHELLS = join(CONFIG_DIR, 'site-shells')
 
 /** A service's install dir: `php-8.3.23+0` for 8.3.23, or an exact `mysql-8.4.0`. */
 function serviceDir(service) {
@@ -72,6 +73,7 @@ function generatedEntryScript(id, site) {
     publicDir: webRoot(expandTilde(site.path)),
     imageMagickDir: join(phpDir, 'ImageMagick', 'modules-Q16', 'coders')
   })
+  ensureConfigDir()
   mkdirSync(SITE_SHELLS, { recursive: true })
   const path = join(SITE_SHELLS, entryScriptName(id))
   writeFileSync(path, script, 'utf8')
